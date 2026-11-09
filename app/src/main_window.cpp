@@ -4,6 +4,7 @@
 #include "ctgp_convert.h"
 #include "setup_page.h"
 #include "updater.h"
+#include "portable.h"
 
 #include <QThread>
 #include <QTimer>
@@ -41,47 +42,56 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
+#include <iterator>
+
 namespace {
 
 // Values are suyu's enum indices (src/common/settings_enums.h), in enum order.
 const QStringList kResolutions{"0.25x", "0.5x", "0.75x", "1x (720p/1080p)", "1.25x", "1.5x",
                                "2x (1440p/2160p)", "3x", "4x", "5x", "6x", "7x", "8x"};
-const QStringList kAspects{"16:9", "4:3", "21:9", "16:10", "32:9", "Stretch to window"};
-const QStringList kFilters{"Nearest", "Bilinear", "Bicubic", "Gaussian", "Lanczos", "ScaleForce",
-                           "AMD FSR", "Area", "Zero-tangent", "B-spline", "Mitchell", "Spline-1",
+const QStringList kAspects{"16:9", "4:3", "21:9", "16:10", "32:9", "Estirar a la ventana"};
+const QStringList kFilters{"Vecino más cercano", "Bilineal", "Bicúbico", "Gaussiano", "Lanczos", "ScaleForce",
+                           "AMD FSR", "Área", "Tangente cero", "B-spline", "Mitchell", "Spline-1",
                            "MMPX", "SGSR", "SGSR edge"};
-const QStringList kAntiAliasing{"None", "FXAA", "SMAA"};
-const QStringList kVSync{"Off (immediate)", "Mailbox", "FIFO (vsync)", "FIFO relaxed"};
-const QStringList kFullscreenModes{"Borderless window", "Exclusive"};
-const QStringList kConsoleModes{"Low (handheld, 720p)", "High (docked, 1080p)"};
+const QStringList kAntiAliasing{"Ninguno", "FXAA", "SMAA"};
+const QStringList kVSync{"Desactivada (inmediata)", "Mailbox", "FIFO (vsync)", "FIFO relajada"};
+const QStringList kFullscreenModes{"Ventana sin bordes", "Exclusiva"};
+const QStringList kConsoleModes{"Baja (portátil, 720p)", "Alta (en base, 1080p)"};
 
 // Emulated console language. Index order is the suyu SDL `Language` enum, one-to-one with
 // suyu's `available_language_codes` (the LanguageCode the console reports to the game at boot).
 // The default (index 1, English US) matches suyu's own default when no config exists yet.
 const QStringList kConsoleLanguages{
-    "Japanese",
-    "English (US)",
-    "French",
-    "German",
-    "Italian",
-    "Spanish (Spain)",
-    "Chinese",
-    "Korean",
-    "Dutch",
-    "Portuguese",
-    "Russian",
-    "Chinese (Taiwan, traditional)",
-    "English (UK)",
-    "French (Canada)",
-    "Spanish (Latin America)",
-    "Chinese (simplified)",
-    "Chinese (traditional)",
-    "Portuguese (Brazil)",
-    "Polish",
-    "Thai",
+    "Japonés",
+    "Inglés (EE. UU.)",
+    "Francés",
+    "Alemán",
+    "Italiano",
+    "Español (España)",
+    "Chino",
+    "Coreano",
+    "Neerlandés",
+    "Portugués",
+    "Ruso",
+    "Chino (Taiwán, tradicional)",
+    "Inglés (Reino Unido)",
+    "Francés (Canadá)",
+    "Español (Latinoamérica)",
+    "Chino (simplificado)",
+    "Chino (tradicional)",
+    "Portugués (Brasil)",
+    "Polaco",
+    "Tailandés",
 };
 
 constexpr int kFsrFilterIndex = 6; // ScalingFilter::Fsr
+
+const GameLanguage kGameLanguages[] = {
+    {"Español (España)", 5, 2},  {"Español (Latinoamérica)", 14, 1}, {"English (UK)", 12, 2}, {"English (US)", 1, 1},
+    {"Français", 2, 2},          {"Français (Canada)", 13, 1},       {"Deutsch", 3, 2},        {"Italiano", 4, 2},
+    {"Nederlands", 8, 2},        {"Português", 9, 2},                {"Русский", 10, 2},       {"日本語", 0, 0},
+    {"한국어", 7, 1},            {"简体中文", 6, 1},                 {"繁體中文", 11, 1},
+};
 
 const QString kRenderer = QStringLiteral("Renderer");
 const QString kCore = QStringLiteral("Core");
@@ -111,13 +121,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     auto* tabs = new QTabWidget;
     setup_page = new SetupPage;
-    tabs->addTab(scrolled(setup_page), tr("Setup"));
+    tabs->addTab(scrolled(setup_page), tr("Instalación"));
     connect(setup_page, &SetupPage::playRequested, this, &MainWindow::launch); // one place starts the game
-    tabs->addTab(scrolled(buildPlayTab()), tr("Play"));
-    tabs->addTab(scrolled(buildDisplayTab()), tr("Display"));
-    tabs->addTab(scrolled(buildFrameRateTab()), tr("Frame rate"));
-    tabs->addTab(scrolled(buildEnhancementsTab()), tr("Enhancements"));
-    tabs->addTab(scrolled(buildControllersTab()), tr("Controllers"));
+    tabs->addTab(scrolled(buildPlayTab()), tr("Jugar"));
+    tabs->addTab(scrolled(buildDisplayTab()), tr("Pantalla"));
+    tabs->addTab(scrolled(buildFrameRateTab()), tr("Velocidad"));
+    tabs->addTab(scrolled(buildEnhancementsTab()), tr("Mejoras"));
+    tabs->addTab(scrolled(buildControllersTab()), tr("Mandos"));
     tabs->addTab(scrolled(buildMiiTab()), tr("Miis"));
     tabs->addTab(scrolled(buildDlcTab()), tr("DLC"));
     tabs->addTab(scrolled(buildModsTab()), tr("Mods"));
@@ -151,7 +161,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         // Nothing to browse for: the folders are fixed, the Setup page picks the user's files.
         root_edit->setReadOnly(true);
         home_edit->setReadOnly(true);
-        home_edit->setText(tr("(set on the Setup page)"));
+        home_edit->setText(tr("(se elige en la pestaña Instalación)"));
         tabs->setCurrentIndex(IsBuilt(DataLayout::Default(), BuilderPaths::Detect().engineVersion) ? 1 : 0);
         connect(setup_page, &SetupPage::builtChanged, this, [this] { reloadPackage(); });
     }
@@ -183,8 +193,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
     connect(&game, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
-        QString summary = tr("Game exited (code %1).").arg(code);
-        if (code == 4 || code == 5) summary += QLatin1Char(' ') + tr("The built game does not match this engine, or is missing: build it again on the Setup page.");
+        QString summary = tr("El juego se ha cerrado (código %1).").arg(code);
+        if (code == 4 || code == 5) summary += QLatin1Char(' ') + tr("El juego construido no coincide con este motor o no existe: vuelve a construirlo en la pestaña Instalación.");
         QFile report(package.coverageReport());
         if (report.open(QIODevice::ReadOnly | QIODevice::Text)) {
             for (const auto& line : QString::fromUtf8(report.readAll()).split(QLatin1Char('\n'))) {
@@ -201,8 +211,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (setup_page->isBuilding()) {
-        const auto answer = QMessageBox::question(this, tr("Build running"),
-            tr("The game is still being built. Stop the build and close? (Building again resumes where it stopped.)"));
+        const auto answer = QMessageBox::question(this, tr("Construcción en curso"),
+            tr("El juego todavía se está construyendo. ¿Parar la construcción y cerrar? (Al construir de nuevo, sigue donde se quedó.)"));
         if (answer != QMessageBox::Yes) {
             event->ignore();
             return;
@@ -226,11 +236,12 @@ QWidget* MainWindow::buildPlayTab() {
     const auto pathRow = [this](QLineEdit*& edit, const QString& title) {
         auto* row = new QHBoxLayout;
         edit = new QLineEdit;
-        auto* browse = new QPushButton(tr("Browse…"));
+        auto* browse = new QPushButton(tr("Examinar…"));
         row->addWidget(edit);
         row->addWidget(browse);
         connect(browse, &QPushButton::clicked, this, [this, edit, title] {
             const QString dir = QFileDialog::getExistingDirectory(this, title, edit->text());
+            Portable::EnterAppDir();
             if (!dir.isEmpty()) {
                 edit->setText(dir);
                 reloadPackage();
@@ -239,89 +250,87 @@ QWidget* MainWindow::buildPlayTab() {
         connect(edit, &QLineEdit::editingFinished, this, [this] { reloadPackage(); });
         return row;
     };
-    form->addRow(tr("Game folder:"), pathRow(root_edit, tr("Select your built game folder")));
-    form->addRow(tr("Keys + firmware:"), pathRow(home_edit, tr("Select the suyu data folder with your keys")));
+    form->addRow(tr("Carpeta del juego:"), pathRow(root_edit, tr("Elige la carpeta del juego construido")));
+    form->addRow(tr("Claves + firmware:"), pathRow(home_edit, tr("Elige la carpeta de datos de suyu con tus claves")));
 
     language_combo = makeCombo(kConsoleLanguages);
-    language_combo->setCurrentIndex(1); // English (US) until the config says otherwise: a save before loadSettings must not write Japanese
+    language_combo->setCurrentIndex(5); // Español (España) until the config says otherwise
     language_combo->setToolTip(
-        tr("The language the emulated console runs the game in, chosen before you start. Saved in the "
-           "game's config and used every launch until you pick another here (or in game, where it can also "
-           "be changed and overrides this). Not every course or text string is translated, so a non-English "
-           "language can still fall back to English in places."));
-    form->addRow(tr("Console language:"), language_combo);
+        tr("El idioma en el que la consola emulada ejecuta el juego (textos y voces). Se guarda en la configuración "
+           "del juego y se usa en cada arranque hasta que elijas otro aquí (o dentro del juego, donde también se "
+           "puede cambiar). Para los idiomas europeos se pone también la región Europa."));
+    form->addRow(tr("Idioma de la consola:"), language_combo);
 
-    renderer_combo = makeCombo({tr("Emulated GPU (default)"), tr("Native Vulkan (experimental)")});
+    renderer_combo = makeCombo({tr("GPU emulada (predeterminado)"), tr("Vulkan nativo (experimental)")});
     renderer_combo->setToolTip(
-        tr("Native Vulkan runs the game's own NVN graphics calls directly on your GPU with no "
-           "emulated GPU. It is new: expect a short pause as each course starts, and please report "
-           "anything that looks different from the emulated GPU. The Display tab's internal "
-           "resolution applies to both renderers (see Native resolution scaling to turn it off "
-           "for native); the upscaling filter, FSR and anti-aliasing apply to the emulated GPU "
-           "only for now."));
+        tr("Vulkan nativo ejecuta las llamadas gráficas NVN del propio juego directamente en tu GPU, sin "
+           "GPU emulada. Es nuevo: habrá una breve pausa al empezar cada circuito; por favor, informa "
+           "de cualquier cosa que se vea distinta a la GPU emulada. La resolución interna de la pestaña "
+           "Pantalla se aplica a los dos renderizadores (mira el escalado de resolución nativa para "
+           "desactivarla en nativo); el filtro de escalado, FSR y el antialiasing solo se aplican a la "
+           "GPU emulada por ahora."));
     renderer_combo->setCurrentIndex(QSettings().value(QStringLiteral("renderer"), 0).toInt());
     connect(renderer_combo, &QComboBox::currentIndexChanged, this,
             [](int index) { QSettings().setValue(QStringLiteral("renderer"), index); });
-    form->addRow(tr("Renderer:"), renderer_combo);
+    form->addRow(tr("Renderizador:"), renderer_combo);
     native_res_combo = makeCombo({tr("720p"), tr("1080p"), tr("1440p"), tr("4K (2160p)")});
     native_res_combo->setToolTip(
-        tr("The native Vulkan renderer's output resolution: the size of the final picture, the HUD included. "
-           "The 3D scene can be drawn smaller than this and upscaled in the in-game menu (F10). This replaces "
-           "the Display tab's internal resolution multiplier for native Vulkan; the emulated GPU keeps that one."));
+        tr("La resolución de salida del renderizador Vulkan nativo: el tamaño de la imagen final, HUD incluido. "
+           "La escena 3D puede dibujarse más pequeña y reescalarse desde el menú del juego (F10). Para Vulkan nativo "
+           "sustituye al multiplicador de resolución interna de la pestaña Pantalla; la GPU emulada sigue usando ese."));
     native_res_combo->setCurrentIndex(QSettings().value(QStringLiteral("native_output_resolution"), 2).toInt());
     connect(native_res_combo, &QComboBox::currentIndexChanged, this,
             [](int index) { QSettings().setValue(QStringLiteral("native_output_resolution"), index); });
     native_res_combo->setEnabled(renderer_combo->currentIndex() == 1);
     connect(renderer_combo, &QComboBox::currentIndexChanged, native_res_combo,
             [this](int index) { native_res_combo->setEnabled(index == 1); });
-    form->addRow(tr("Native output resolution:"), native_res_combo);
+    form->addRow(tr("Resolución de salida nativa:"), native_res_combo);
     auto* ingame_note = new QLabel(
-        tr("In game, F10 (or both stick buttons, L3 + R3, on a controller) opens a settings menu: upscaler, render scale, "
-           "sharpening, frame generation, HDR, present mode, speed limit, an FPS counter and which controller plays as "
-           "Players 1 to 4. The Enhancements tab holds the same settings."));
+        tr("Dentro del juego, F10 (o pulsar los dos sticks, L3 + R3, en un mando) abre un menú de ajustes: reescalador, escala de "
+           "renderizado, nitidez, generación de fotogramas, HDR, modo de presentación, límite de velocidad, contador de FPS y qué "
+           "mando usa cada jugador (1 a 4). La pestaña Mejoras tiene los mismos ajustes."));
     ingame_note->setWordWrap(true);
     form->addRow(ingame_note);
 #ifdef Q_OS_LINUX
-    pin_combo = makeCombo({tr("Off (default)"), tr("On")});
+    pin_combo = makeCombo({tr("Desactivado (predeterminado)"), tr("Activado")});
     pin_combo->setToolTip(
-        tr("Pins each emulated CPU core's thread (and the native renderer's) to its own CPU, so the "
-           "caches stay warm instead of being refilled after every migration. It helps a little in "
-           "heavy moments (fewer dropped frames). Leave it off if the CPU is busy with other "
-           "programs, because pinned threads can't move away from them. Needs 6 or more CPU threads."));
+        tr("Fija el hilo de cada núcleo de CPU emulado (y el del renderizador nativo) a su propia CPU, para que "
+           "las cachés no se vacíen en cada migración. Ayuda un poco en los momentos exigentes (menos "
+           "tirones). Déjalo desactivado si la CPU está ocupada con otros programas. Necesita 6 hilos o más."));
     pin_combo->setCurrentIndex(QSettings().value(QStringLiteral("pin_cpu_threads"), 0).toInt());
     pin_combo->setEnabled(QThread::idealThreadCount() >= 6);
     connect(pin_combo, &QComboBox::currentIndexChanged, this,
             [](int index) { QSettings().setValue(QStringLiteral("pin_cpu_threads"), index); });
-    form->addRow(tr("Pin CPU threads (Linux):"), pin_combo);
+    form->addRow(tr("Fijar hilos de CPU (Linux):"), pin_combo);
 #endif
 
 #ifdef Q_OS_LINUX
-    malloc_check = new QCheckBox(tr("Faster memory allocator (tcmalloc, if installed)"));
-    malloc_check->setToolTip(tr("Preloads gperftools' tcmalloc: the renderer and the graphics hooks allocate a lot, and it is worth several fps "
-                                "in split-screen races. Install the gperftools package (libtcmalloc_minimal.so.4) to use it."));
+    malloc_check = new QCheckBox(tr("Gestor de memoria más rápido (tcmalloc, si está instalado)"));
+    malloc_check->setToolTip(tr("Precarga tcmalloc de gperftools: el renderizador y los ganchos gráficos reservan mucha memoria, y gana varios fps "
+                                "en carreras a pantalla partida. Instala el paquete gperftools (libtcmalloc_minimal.so.4) para usarlo."));
     malloc_check->setChecked(QSettings().value(QStringLiteral("use_tcmalloc"), true).toBool());
     connect(malloc_check, &QCheckBox::toggled, this, [](bool on) { QSettings().setValue(QStringLiteral("use_tcmalloc"), on); });
     form->addRow(malloc_check);
 #endif
     status_label = new QLabel;
     status_label->setWordWrap(true);
-    fullscreen_check = new QCheckBox(tr("Fullscreen"));
-    nvn_capture_check = new QCheckBox(tr("Record graphics trace (developer)"));
+    fullscreen_check = new QCheckBox(tr("Pantalla completa"));
+    nvn_capture_check = new QCheckBox(tr("Grabar traza gráfica (desarrollador)"));
     nvn_capture_check->setToolTip(
-        tr("Logs the game's NVN graphics calls to user/log (nvn_trace.txt, nvn_frames.csv and "
-           "two-frame captures every 30 s). Used to build the native GPU backend. Slower."));
+        tr("Registra las llamadas gráficas NVN del juego en user/log (nvn_trace.txt, nvn_frames.csv y "
+           "capturas de dos fotogramas cada 30 s). Sirve para desarrollar la GPU nativa. Más lento."));
 
-    play_button = new QPushButton(tr("Play"));
+    play_button = new QPushButton(tr("Jugar"));
     play_button->setMinimumHeight(40);
-    stop_button = new QPushButton(tr("Stop"));
+    stop_button = new QPushButton(tr("Detener"));
     stop_button->setEnabled(false);
     connect(play_button, &QPushButton::clicked, this, &MainWindow::launch);
     connect(stop_button, &QPushButton::clicked, this, [this] { game.terminate(); });
 #ifdef Q_OS_LINUX
-    appimage_button = new QPushButton(tr("Package as AppImage…"));
-    appimage_button->setToolTip(tr("Packs the game built on this PC into one AppImage for this PC (never share it: it contains the "
-                                   "translated game code). Saves, settings and mods move to ~/.local/share/kartrecomp and "
-                                   "~/.config/kartrecomp; your game files, firmware and mods are linked there, not copied."));
+    appimage_button = new QPushButton(tr("Empaquetar como AppImage…"));
+    appimage_button->setToolTip(tr("Empaqueta el juego construido en este PC en un AppImage para este PC (no lo compartas: contiene el código "
+                                   "traducido del juego). Partidas, ajustes y mods pasan a ~/.local/share/kartrecomp y "
+                                   "~/.config/kartrecomp; tus archivos del juego, firmware y mods se enlazan allí, no se copian."));
     connect(appimage_button, &QPushButton::clicked, this, &MainWindow::packageAppImage);
 #ifdef Q_OS_WIN
     appimage_button->hide();  // AppImages are a Linux thing
@@ -332,7 +341,7 @@ QWidget* MainWindow::buildPlayTab() {
     buttons->addWidget(fullscreen_check);
     buttons->addWidget(nvn_capture_check);
     buttons->addStretch();
-    auto* update_button = new QPushButton(tr("Check for updates"));
+    auto* update_button = new QPushButton(tr("Buscar actualizaciones"));
     connect(update_button, &QPushButton::clicked, this, [this] { updater->check(false); });
     buttons->addWidget(update_button);
     if (appimage_button) buttons->addWidget(appimage_button);
@@ -349,10 +358,10 @@ QWidget* MainWindow::buildPlayTab() {
     layout->addLayout(buttons);
     appimage_progress = new QProgressBar;
     appimage_progress->setRange(0, 3);
-    appimage_progress->setFormat(tr("Packaging: step %v of %m"));
+    appimage_progress->setFormat(tr("Empaquetando: paso %v de %m"));
     appimage_progress->hide();
     layout->addWidget(appimage_progress);
-    layout->addWidget(new QLabel(tr("Output:")));
+    layout->addWidget(new QLabel(tr("Salida:")));
     layout->addWidget(log_view, 1);
     return page;
 }
@@ -367,24 +376,23 @@ QWidget* MainWindow::buildDisplayTab() {
     vsync_combo = makeCombo(kVSync);
     fullscreen_mode_combo = makeCombo(kFullscreenModes);
     docked_combo = makeCombo(kConsoleModes);
-    form->addRow(tr("Internal resolution:"), resolution_combo);
-    form->addRow(tr("Aspect ratio:"), aspect_combo);
-    form->addRow(tr("Upscaling filter:"), filter_combo);
+    form->addRow(tr("Resolución interna:"), resolution_combo);
+    form->addRow(tr("Relación de aspecto:"), aspect_combo);
+    form->addRow(tr("Filtro de escalado:"), filter_combo);
     fsr_sharpness_spin = new QSpinBox;
     fsr_sharpness_spin->setRange(0, 200);
     fsr_sharpness_spin->setSuffix(QStringLiteral(" %"));
-    form->addRow(tr("FSR sharpening:"), fsr_sharpness_spin);
-    form->addRow(tr("Anti-aliasing:"), aa_combo);
-    form->addRow(tr("VSync:"), vsync_combo);
-    form->addRow(tr("Fullscreen mode:"), fullscreen_mode_combo);
-    form->addRow(tr("Graphics quality:"), docked_combo);
+    form->addRow(tr("Nitidez FSR:"), fsr_sharpness_spin);
+    form->addRow(tr("Antialiasing:"), aa_combo);
+    form->addRow(tr("Sincronización vertical:"), vsync_combo);
+    form->addRow(tr("Modo de pantalla completa:"), fullscreen_mode_combo);
+    form->addRow(tr("Calidad gráfica:"), docked_combo);
     auto* note = new QLabel(
-        tr("Graphics quality: High is the docked console mode (the game renders at 1080p with its best effects), Low is "
-           "handheld (720p, lighter effects). It can also be changed in game (F10). The resolution scale multiplies that. "
-           "It only looks sharper when the window or screen is larger than the base resolution, "
-           "for example 2x in fullscreen on a 1440p or 4K monitor. AMD FSR (1) with sharpening is "
-           "the upscaler built in. Changes are saved immediately and apply from the next launch; "
-           "they are locked while the game runs."));
+        tr("Calidad gráfica: Alta es el modo de consola en base (el juego se dibuja a 1080p con sus mejores efectos), Baja es "
+           "el modo portátil (720p, efectos más ligeros). También se cambia dentro del juego (F10). La escala de resolución "
+           "multiplica eso, y solo se nota más nítido cuando la ventana o la pantalla es más grande que la resolución base, "
+           "por ejemplo 2x a pantalla completa en un monitor 1440p o 4K. AMD FSR (1) con nitidez es el reescalador incluido. "
+           "Los cambios se guardan al momento y se aplican desde el siguiente arranque; se bloquean mientras el juego está abierto."));
     note->setWordWrap(true);
     form->addRow(note);
     return page;
@@ -393,17 +401,17 @@ QWidget* MainWindow::buildDisplayTab() {
 QWidget* MainWindow::buildFrameRateTab() {
     auto* page = frame_rate_page = new QWidget;
     auto* form = new QFormLayout(page);
-    limit_check = new QCheckBox(tr("Limit emulation speed"));
+    limit_check = new QCheckBox(tr("Limitar la velocidad de emulación"));
     limit_spin = new QSpinBox;
     limit_spin->setRange(10, 400);
     limit_spin->setSuffix(QStringLiteral(" %"));
     connect(limit_check, &QCheckBox::toggled, limit_spin, &QSpinBox::setEnabled);
     form->addRow(limit_check);
-    form->addRow(tr("Speed limit:"), limit_spin);
+    form->addRow(tr("Límite de velocidad:"), limit_spin);
     auto* note = new QLabel(
-        tr("100 % is the game's native 60 fps. A different value speeds up or slows down the whole "
-           "game. True custom frame rates (for example 120 fps at normal speed) need game-side "
-           "patches generated from your own copy. That is planned; see docs/ROADMAP.md."));
+        tr("100 % son los 60 fps nativos del juego. Otro valor acelera o frena todo el juego. Las tasas de "
+           "fotogramas personalizadas de verdad (por ejemplo 120 fps a velocidad normal) necesitan parches "
+           "del juego generados a partir de tu propia copia. Está previsto; mira docs/ROADMAP.md."));
     note->setWordWrap(true);
     form->addRow(note);
     return page;
@@ -412,24 +420,24 @@ QWidget* MainWindow::buildFrameRateTab() {
 QWidget* MainWindow::buildControllersTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
-    auto* note = new QLabel(tr("Player 1 bindings from the game's config. Controllers connected at "
-                               "launch are mapped automatically. A capture-based remapping UI is "
-                               "planned."));
+    auto* note = new QLabel(tr("Controles del jugador 1 según la configuración del juego. Los mandos conectados al "
+                               "arrancar se asignan solos. Está prevista una pantalla para "
+                               "reasignar botones."));
     note->setWordWrap(true);
     controls_table = new QTableWidget(0, 2);
-    controls_table->setHorizontalHeaderLabels({tr("Input"), tr("Binding")});
+    controls_table->setHorizontalHeaderLabels({tr("Entrada"), tr("Asignación")});
     controls_table->horizontalHeader()->setStretchLastSection(true);
     controls_table->verticalHeader()->hide();
     controls_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     players_table = new QTableWidget(4, 3);
-    players_table->setHorizontalHeaderLabels({tr("Player"), tr("State"), tr("Mapped to")});
+    players_table->setHorizontalHeaderLabels({tr("Jugador"), tr("Estado"), tr("Asignado a")});
     players_table->horizontalHeader()->setStretchLastSection(true);
     players_table->verticalHeader()->hide();
     players_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     players_table->setMaximumHeight(150);
-    auto* assign_note = new QLabel(tr("Players 1 to 4. Controllers are handed out automatically as they connect. To choose who plays on what "
-                                      "(a controller, the keyboard, or nobody), open the in-game menu with F10, or both stick buttons "
-                                      "on a controller, and use the Player 1 to 4 controller rows."));
+    auto* assign_note = new QLabel(tr("Jugadores 1 a 4. Los mandos se reparten solos a medida que se conectan. Para elegir quién juega con qué "
+                                      "(un mando, el teclado o nadie), abre el menú del juego con F10, o pulsando los dos sticks "
+                                      "en un mando, y usa las filas \"Mando jugador 1\" a \"Mando jugador 4\"."));
     assign_note->setWordWrap(true);
     layout->addWidget(note);
     layout->addWidget(assign_note);
@@ -442,10 +450,9 @@ QWidget* MainWindow::buildMiiTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     auto* note = new QLabel(
-        tr("Manual Mii entry is planned. Miis are stored in the system save 8000000000000030 "
-           "(MiiDatabase.dat) inside the game's user/nand folder. The editor will write valid "
-           "records (name, face, hair, colours) there, so they show up in the game's Mii racer "
-           "list."));
+        tr("Está previsto poder crear Miis a mano. Los Miis se guardan en la partida del sistema 8000000000000030 "
+           "(MiiDatabase.dat), dentro de la carpeta user/nand del juego. El editor escribirá ahí registros "
+           "válidos (nombre, cara, pelo, colores) para que aparezcan en la lista de pilotos Mii del juego."));
     note->setWordWrap(true);
     layout->addWidget(note);
     layout->addStretch();
@@ -455,21 +462,22 @@ QWidget* MainWindow::buildMiiTab() {
 QWidget* MainWindow::buildDlcTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
-    auto* note = new QLabel(tr("Add-on content NSPs from your own dump. Each one is passed to the "
-                               "game with --content-dlc. DLC is data only, so no rebuild is needed."));
+    auto* note = new QLabel(tr("Contenido descargable (NSP) de tu propio volcado. Cada uno se pasa al "
+                               "juego con --content-dlc. Los DLC son solo datos: no hace falta reconstruir el juego."));
     note->setWordWrap(true);
     dlc_list = new QListWidget;
-    auto* add = new QPushButton(tr("Add DLC…"));
-    auto* remove = new QPushButton(tr("Remove selected"));
+    auto* add = new QPushButton(tr("Añadir DLC…"));
+    auto* remove = new QPushButton(tr("Quitar los seleccionados"));
     connect(add, &QPushButton::clicked, this, [this] {
-        const auto files = QFileDialog::getOpenFileNames(this, tr("Add DLC"), {},
-                                                         tr("NSP files (*.nsp)"));
+        const auto files = QFileDialog::getOpenFileNames(this, tr("Añadir DLC"), {},
+                                                         tr("Archivos NSP (*.nsp)"));
+        Portable::EnterAppDir();
         QDir().mkpath(package.dlcDir());
         for (const auto& f : files) {
             const QString target = QDir(package.dlcDir()).filePath(QFileInfo(f).fileName());
             // A hard link costs no space when the file is on the same drive; copy otherwise.
             if (!QFile::exists(target) && !QFile::link(f, target) && !QFile::copy(f, target)) {
-                QMessageBox::warning(this, tr("DLC"), tr("Could not add %1").arg(f));
+                QMessageBox::warning(this, tr("DLC"), tr("No se pudo añadir %1").arg(f));
             }
         }
         refreshDlc();
@@ -500,7 +508,7 @@ void MainWindow::reloadPackage() {
     }
 
     const QString problems = package.problems();
-    status_label->setText(problems.isEmpty() ? tr("Ready.") : problems);
+    status_label->setText(problems.isEmpty() ? tr("Listo.") : problems);
     play_button->setEnabled(problems.isEmpty() && game.state() == QProcess::NotRunning);
     loadSettings();
     refreshDlc();
@@ -522,8 +530,11 @@ void MainWindow::loadSettings() {
     fullscreen_mode_combo->setCurrentIndex(
         config.intValue(kRenderer, QStringLiteral("fullscreen_mode"), 0));
     docked_combo->setCurrentIndex(config.intValue(kSystem, QStringLiteral("use_docked_mode"), 1));
-    // Index order is suyu's `Language` enum / `available_language_codes`; default 1 = English (US), suyu's own default.
-    language_combo->setCurrentIndex(config.intValue(kSystem, QStringLiteral("language_index"), 1));
+    {
+        // Index order is suyu's `Language` enum. A config still on suyu's default (\default=true) counts as no choice: Spanish (Spain).
+        const bool chosen = config.value(kSystem, QStringLiteral("language_index\\default")) == QLatin1String("false");
+        language_combo->setCurrentIndex(chosen ? config.intValue(kSystem, QStringLiteral("language_index"), 5) : 5);
+    }
     limit_check->setChecked(config.boolValue(kCore, QStringLiteral("use_speed_limit"), true));
     limit_spin->setValue(config.intValue(kCore, QStringLiteral("speed_limit"), 100));
     limit_spin->setEnabled(limit_check->isChecked());
@@ -546,6 +557,10 @@ bool MainWindow::saveSettings() {
     config.setInt(kSystem, QStringLiteral("use_docked_mode"), docked_combo->currentIndex());
     // Read by the engine at every boot (ISettingsServer::GetLanguageCode): the console language until changed here or in game.
     config.setInt(kSystem, QStringLiteral("language_index"), language_combo->currentIndex());
+    // A region that goes with it (suyu's Region: 0 Japan, 1 USA, 2 Europe); Chinese, Korean and Thai keep the config's own.
+    static const int kRegionFor[] = {0, 1, 2, 2, 2, 2, -1, -1, 2, 2, 2, -1, 2, 1, 1, -1, -1, 1, 2, -1};
+    if (const int l = language_combo->currentIndex(); l >= 0 && l < static_cast<int>(std::size(kRegionFor)) && kRegionFor[l] >= 0)
+        config.setInt(kSystem, QStringLiteral("region_index"), kRegionFor[l]);
     config.setBool(kCore, QStringLiteral("use_speed_limit"), limit_check->isChecked());
     config.setInt(kCore, QStringLiteral("speed_limit"), limit_spin->value());
     config.setInt(kRenderer, QStringLiteral("fsr_sharpening_slider"), fsr_sharpness_spin->value());
@@ -560,13 +575,13 @@ void MainWindow::applySettingsNow() {
     // Re-read first so anything the game wrote since we loaded is kept.
     IniFile fresh;
     if (!fresh.load(package.configFile())) {
-        status_label->setText(tr("Launch the game once so it creates its config; settings can be "
-                                 "changed after that."));
+        status_label->setText(tr("Abre el juego una vez para que cree su configuración; después "
+                                 "podrás cambiar los ajustes."));
         return;
     }
     config = fresh;
     if (!saveSettings()) {
-        status_label->setText(tr("Could not write %1").arg(package.configFile()));
+        status_label->setText(tr("No se pudo escribir %1").arg(package.configFile()));
     }
 }
 
@@ -592,12 +607,12 @@ void MainWindow::refreshControllers() {
         const QString prefix = QStringLiteral("player_%1_").arg(p);
         const bool connected = config.boolValue(kControls, prefix + QStringLiteral("connected"), p == 0);
         const QString a = config.value(kControls, prefix + QStringLiteral("button_a"));
-        QString device = tr("nothing");
-        if (a.contains(QLatin1String("engine:keyboard"))) device = tr("keyboard");
-        else if (a.contains(QLatin1String("engine:sdl"))) device = tr("controller");
+        QString device = tr("nada");
+        if (a.contains(QLatin1String("engine:keyboard"))) device = tr("teclado");
+        else if (a.contains(QLatin1String("engine:sdl"))) device = tr("mando");
         else if (a.contains(QLatin1String("engine:joycon"))) device = tr("Joy-Con");
-        players_table->setItem(p, 0, new QTableWidgetItem(tr("Player %1").arg(p + 1)));
-        players_table->setItem(p, 1, new QTableWidgetItem(connected ? tr("connected") : tr("not connected")));
+        players_table->setItem(p, 0, new QTableWidgetItem(tr("Jugador %1").arg(p + 1)));
+        players_table->setItem(p, 1, new QTableWidgetItem(connected ? tr("conectado") : tr("no conectado")));
         players_table->setItem(p, 2, new QTableWidgetItem(device));
     }
     controls_table->setRowCount(0);
@@ -652,7 +667,7 @@ QProcessEnvironment MainWindow::launchEnvironment() const {
 bool MainWindow::launchWithoutWindow() {
     const QString problems = package.problems();
     if (!problems.isEmpty()) {
-        QMessageBox::warning(nullptr, tr("Cannot start"), problems + QStringLiteral("\n\n") + tr("Open the launcher without --nolauncher to fix this."));
+        QMessageBox::warning(nullptr, tr("No se puede iniciar"), problems + QStringLiteral("\n\n") + tr("Abre el launcher sin --nolauncher para arreglarlo."));
         return false;
     }
     connect(&game, &QProcess::finished, qApp, [](int code, QProcess::ExitStatus) { QCoreApplication::exit(code); });
@@ -666,7 +681,7 @@ bool MainWindow::launchWithoutWindow() {
 void MainWindow::launch() {
     const QString problems = package.problems();
     if (!problems.isEmpty()) {
-        QMessageBox::warning(this, tr("Cannot start"), problems);
+        QMessageBox::warning(this, tr("No se puede iniciar"), problems);
         return;
     }
     // Settings are re-read first so edits made by the game since the last load survive.
@@ -675,7 +690,7 @@ void MainWindow::launch() {
         config = fresh;
     }
     if (!package.fixDataPaths() || !saveSettings()) {
-        QMessageBox::warning(this, tr("Settings"), tr("Could not write %1").arg(package.configFile()));
+        QMessageBox::warning(this, tr("Ajustes"), tr("No se pudo escribir %1").arg(package.configFile()));
         return;
     }
     log_view->clear();
@@ -686,9 +701,9 @@ void MainWindow::launch() {
         const bool is401 = info.open(QIODevice::ReadOnly) && info.readAll().contains("\"update\": \"4.0.1\"");
         const QStringList menus = is401 ? ModAddon::ModsReplacingMenus(package.root()) : QStringList();
         if (!menus.isEmpty()) {
-            const auto answer = QMessageBox::question(this, tr("Mods made for 3.0.4"),
-                tr("Your game is built from update 4.0.1, and these mods replace the game's menu files with versions made for an older "
-                   "update. The game stops at its first loading screen with them.\n\n%1\n\nTurn them off and start?").arg(menus.join(QLatin1Char('\n'))),
+            const auto answer = QMessageBox::question(this, tr("Mods hechos para la 3.0.4"),
+                tr("Tu juego está construido con la actualización 4.0.1, y estos mods sustituyen los archivos de menús del juego por versiones "
+                   "hechas para una actualización anterior. Con ellos el juego se queda en la primera pantalla de carga.\n\n%1\n\n¿Desactivarlos e iniciar?").arg(menus.join(QLatin1Char('\n'))),
                 QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
             if (answer == QMessageBox::Cancel) return;
             if (answer == QMessageBox::Yes) {
@@ -701,7 +716,7 @@ void MainWindow::launch() {
     // stall the game at its first loading screen, so they are re-merged first.
     if (!package.root().isEmpty() && ModAddon::NeedsTextMerge(package.root())) {
         syncTextMerge();
-        status_label->setText(tr("Updating the merged mod texts for this game version; press Play again when it is done."));
+        status_label->setText(tr("Actualizando los textos combinados de los mods para esta versión del juego; pulsa Jugar otra vez cuando termine."));
         return;
     }
     game.setWorkingDirectory(package.workingDirectory());
@@ -709,7 +724,7 @@ void MainWindow::launch() {
     game.setProcessEnvironment(env);
     game.setProcessChannelMode(QProcess::MergedChannels);
     game.start(package.executable(), package.launchArguments(fullscreen_check->isChecked()));
-    status_label->setText(tr("Running…"));
+    status_label->setText(tr("En marcha…"));
 }
 
 
@@ -728,11 +743,11 @@ void MainWindow::packageAppImage() {
         }
     }
     if (script.isEmpty() || !QFileInfo::exists(package.executable())) {
-        QMessageBox::warning(this, tr("AppImage"), tr("Needs the built game (%1) and packaging/make-appimage.sh.").arg(package.executable()));
+        QMessageBox::warning(this, tr("AppImage"), tr("Hace falta el juego construido (%1) y packaging/make-appimage.sh.").arg(package.executable()));
         return;
     }
     const QString home = QDir::homePath();
-    const QString out = QFileDialog::getExistingDirectory(this, tr("Where should the AppImage go?"), QDir(home).filePath(QStringLiteral("Applications")));
+    const QString out = QFileDialog::getExistingDirectory(this, tr("¿Dónde guardo el AppImage?"), QDir(home).filePath(QStringLiteral("Applications")));
     if (out.isEmpty()) return;
     const auto xdg = [&](const char* var, const char* fallback) {
         const QString v = qEnvironmentVariable(var);
@@ -777,7 +792,7 @@ void MainWindow::packageAppImage() {
     }
     log_view->clear();
     appimage_button->setEnabled(false);
-    status_label->setText(tr("Packaging…"));
+    status_label->setText(tr("Empaquetando…"));
     appimage_progress->setValue(0);
     appimage_progress->show();
     auto* proc = new QProcess(this);
@@ -790,15 +805,15 @@ void MainWindow::packageAppImage() {
         for (auto it = step.globalMatch(text); it.hasNext();) {
             const auto m = it.next();
             appimage_progress->setValue(m.captured(1).toInt() - 1);
-            status_label->setText(tr("Packaging: %1…").arg(m.captured(2)));
+            status_label->setText(tr("Empaquetando: %1…").arg(m.captured(2)));
         }
     });
     connect(proc, &QProcess::finished, this, [this, proc, out](int code) {
         appimage_button->setEnabled(true);
         appimage_progress->setValue(code == 0 ? 3 : appimage_progress->value());
         if (code != 0) appimage_progress->hide();
-        status_label->setText(code == 0 ? tr("AppImage written to %1").arg(QDir(out).filePath(QStringLiteral("KartRecomp-x86_64.AppImage")))
-                                        : tr("Packaging failed (see the output)."));
+        status_label->setText(code == 0 ? tr("AppImage guardado en %1").arg(QDir(out).filePath(QStringLiteral("KartRecomp-x86_64.AppImage")))
+                                        : tr("Falló el empaquetado (mira la salida)."));
         proc->deleteLater();
     });
     proc->start(QStringLiteral("bash"), {script, package.root(), out});
@@ -810,44 +825,44 @@ QWidget* MainWindow::buildEnhancementsTab() {
     auto* form = new QFormLayout(page);
 
     upscaler_combo = new QComboBox;
-    upscaler_combo->setToolTip(tr("Upscales (or, at 100%, anti-aliases) the 3D picture; the HUD is never upscaled. FSR 3 and DLSS are plugins "
-                                  "found in the game's plugins folder; DLSS needs an NVIDIA GPU."));
-    scale_combo = makeCombo({tr("Off (3D drawn at the output resolution)"), tr("100% (DLAA / native anti-aliasing)"), tr("67% (quality)"),
-                             tr("58% (balanced)"), tr("50% (performance)"), tr("33% (ultra performance)"), tr("150% (supersampling)"),
-                             tr("200% (supersampling)")});
-    scale_combo->setToolTip(tr("How large the 3D scene is drawn compared with the output resolution. Below 100% needs a temporal upscaler."));
-    sharpness_combo = makeCombo({tr("Off"), tr("Low"), tr("Medium"), tr("High")});
-    jitter_check = new QCheckBox(tr("Camera jitter (needed by temporal upscalers; they switch it on themselves)"));
+    upscaler_combo->setToolTip(tr("Reescala (o, al 100%, suaviza los bordes de) la imagen 3D; el HUD nunca se reescala. FSR 3 y DLSS son complementos "
+                                  "de la carpeta plugins del juego; DLSS necesita una GPU NVIDIA."));
+    scale_combo = makeCombo({tr("Desactivado (3D a la resolución de salida)"), tr("100% (DLAA / antialiasing nativo)"), tr("67% (calidad)"),
+                             tr("58% (equilibrado)"), tr("50% (rendimiento)"), tr("33% (ultra rendimiento)"), tr("150% (supermuestreo)"),
+                             tr("200% (supermuestreo)")});
+    scale_combo->setToolTip(tr("A qué tamaño se dibuja la escena 3D respecto a la resolución de salida. Por debajo del 100% hace falta un reescalador temporal."));
+    sharpness_combo = makeCombo({tr("Desactivada"), tr("Baja"), tr("Media"), tr("Alta")});
+    jitter_check = new QCheckBox(tr("Vibración de cámara (jitter; la necesitan los reescaladores temporales, que la activan solos)"));
     framegen_combo = new QComboBox;
-    framegen_combo->setToolTip(tr("Doubles the frame rate with a generated frame between each pair of real ones. The HUD is drawn over "
-                                  "the generated frame, so it never smears. Needs a temporal upscaler."));
-    hdr_check = new QCheckBox(tr("HDR10 output (needs the display in HDR mode)"));
-    hdr_paper_combo = makeCombo({tr("100 nits"), tr("150 nits"), tr("203 nits (standard)"), tr("250 nits"), tr("300 nits")});
+    framegen_combo->setToolTip(tr("Duplica los fotogramas generando uno entre cada par de fotogramas reales. El HUD se dibuja encima "
+                                  "del fotograma generado, así que nunca se emborrona. Necesita un reescalador temporal."));
+    hdr_check = new QCheckBox(tr("Salida HDR10 (la pantalla debe estar en modo HDR)"));
+    hdr_paper_combo = makeCombo({tr("100 nits"), tr("150 nits"), tr("203 nits (estándar)"), tr("250 nits"), tr("300 nits")});
     hdr_peak_combo = makeCombo({tr("400 nits"), tr("600 nits"), tr("800 nits"), tr("1000 nits"), tr("1500 nits")});
-    present_combo = makeCombo({tr("Mailbox"), tr("FIFO (vsync)"), tr("Immediate")});
-    fps_check = new QCheckBox(tr("Show an FPS counter"));
+    present_combo = makeCombo({tr("Mailbox"), tr("FIFO (vsync)"), tr("Inmediato")});
+    fps_check = new QCheckBox(tr("Mostrar contador de FPS"));
 
-    form->addRow(tr("Upscaler:"), upscaler_combo);
+    form->addRow(tr("Reescalador:"), upscaler_combo);
 #ifdef Q_OS_LINUX
-    dlss_button = new QPushButton(tr("Set up NVIDIA DLSS..."));
-    dlss_button->setToolTip(tr("For NVIDIA GPUs. Downloads NVIDIA's DLSS SDK to this PC and builds a small plugin here, because NVIDIA's "
-                               "files cannot be shipped with the game. Needs a C++ compiler and the Vulkan headers."));
+    dlss_button = new QPushButton(tr("Configurar NVIDIA DLSS..."));
+    dlss_button->setToolTip(tr("Para GPU NVIDIA. Descarga el SDK de DLSS de NVIDIA en este PC y compila aquí un pequeño complemento, porque los "
+                               "archivos de NVIDIA no pueden distribuirse con el juego. Necesita un compilador de C++ y las cabeceras de Vulkan."));
     connect(dlss_button, &QPushButton::clicked, this, &MainWindow::setupDlss);
     form->addRow(QString(), dlss_button);
 #endif
-    form->addRow(tr("3D render scale:"), scale_combo);
-    form->addRow(tr("Sharpening:"), sharpness_combo);
+    form->addRow(tr("Escala de renderizado 3D:"), scale_combo);
+    form->addRow(tr("Nitidez:"), sharpness_combo);
     form->addRow(jitter_check);
-    form->addRow(tr("Frame generation:"), framegen_combo);
+    form->addRow(tr("Generación de fotogramas:"), framegen_combo);
     form->addRow(hdr_check);
-    form->addRow(tr("HDR paper white:"), hdr_paper_combo);
-    form->addRow(tr("HDR peak brightness:"), hdr_peak_combo);
-    form->addRow(tr("Present mode:"), present_combo);
+    form->addRow(tr("Blanco de papel HDR:"), hdr_paper_combo);
+    form->addRow(tr("Brillo máximo HDR:"), hdr_peak_combo);
+    form->addRow(tr("Modo de presentación:"), present_combo);
     form->addRow(fps_check);
     auto* note = new QLabel(
-        tr("These are the same settings as the in-game menu (F10, or both stick buttons on a controller) and they are shared: a change in "
-           "game is saved here, and the values below are what the game starts with. They only apply to the Native Vulkan renderer, and are "
-           "locked while the game runs."));
+        tr("Son los mismos ajustes que el menú del juego (F10, o pulsando los dos sticks en un mando) y se comparten: un cambio dentro "
+           "del juego se guarda aquí, y estos valores son con los que arranca el juego. Solo se aplican al renderizador Vulkan nativo y se "
+           "bloquean mientras el juego está abierto."));
     note->setWordWrap(true);
     form->addRow(note);
 
@@ -876,19 +891,19 @@ void MainWindow::setupDlss() {
         }
     }
     if (src.isEmpty()) {
-        QMessageBox::warning(this, tr("NVIDIA DLSS"), tr("The DLSS plugin source is not part of this install."));
+        QMessageBox::warning(this, tr("NVIDIA DLSS"), tr("El código del complemento DLSS no está en esta instalación."));
         return;
     }
     const QString dest = DataLayout::Default().pluginsDir();
-    if (QMessageBox::question(this, tr("Set up NVIDIA DLSS"),
-                              tr("This downloads NVIDIA's DLSS SDK (github.com/NVIDIA/DLSS) to this PC, builds a small plugin with your C++ "
-                                 "compiler and installs it in:\n%1\n\nNVIDIA's files stay on this PC; they are never part of the game's download. "
-                                 "It works on NVIDIA GPUs with a current driver. Continue?").arg(dest)) != QMessageBox::Yes) {
+    if (QMessageBox::question(this, tr("Configurar NVIDIA DLSS"),
+                              tr("Esto descarga el SDK de DLSS de NVIDIA (github.com/NVIDIA/DLSS) en este PC, compila un pequeño complemento con tu "
+                                 "compilador de C++ y lo instala en:\n%1\n\nLos archivos de NVIDIA se quedan en este PC; nunca forman parte de la descarga del juego. "
+                                 "Funciona en GPU NVIDIA con un controlador actual. ¿Continuar?").arg(dest)) != QMessageBox::Yes) {
         return;
     }
     auto* dialog = new QDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(tr("Set up NVIDIA DLSS"));
+    dialog->setWindowTitle(tr("Configurar NVIDIA DLSS"));
     dialog->resize(720, 420);
     auto* lay = new QVBoxLayout(dialog);
     auto* log = new QPlainTextEdit;
@@ -902,12 +917,12 @@ void MainWindow::setupDlss() {
     proc->setProcessChannelMode(QProcess::MergedChannels);
     connect(proc, &QProcess::readyRead, log, [proc, log] { log->appendPlainText(QString::fromLocal8Bit(proc->readAll()).trimmed()); });
     connect(proc, &QProcess::finished, dialog, [this, proc, log, buttons](int code, QProcess::ExitStatus) {
-        log->appendPlainText(code == 0 ? tr("\nFinished.") : tr("\nFailed (exit code %1). Fix what is listed above and try again.").arg(code));
+        log->appendPlainText(code == 0 ? tr("\nTerminado.") : tr("\nHa fallado (código %1). Corrige lo que aparece arriba y vuelve a intentarlo.").arg(code));
         buttons->button(QDialogButtonBox::Close)->setEnabled(true);
         if (code == 0) loadOverlay();
     });
     connect(proc, &QProcess::errorOccurred, dialog, [log, buttons](QProcess::ProcessError) {
-        log->appendPlainText(tr("Could not start the setup script (is bash installed?)."));
+        log->appendPlainText(tr("No se pudo iniciar el script de instalación (¿está instalado bash?)."));
         buttons->button(QDialogButtonBox::Close)->setEnabled(true);
     });
     dialog->show();
@@ -924,8 +939,8 @@ void MainWindow::loadOverlay() {
     upscaler_ids = QStringList{QStringLiteral("off"), QStringLiteral("fsr1")} + FindPluginIds(package.pluginsParent(), QStringLiteral("upscaler"), {DataLayout::Default().pluginsDir()});
     upscaler_combo->clear();
     for (const auto& id : upscaler_ids) {
-        upscaler_combo->addItem(id == QLatin1String("off")    ? tr("Off")
-                                : id == QLatin1String("fsr1") ? tr("FSR 1 (spatial)")
+        upscaler_combo->addItem(id == QLatin1String("off")    ? tr("Desactivado")
+                                : id == QLatin1String("fsr1") ? tr("FSR 1 (espacial)")
                                 : id == QLatin1String("fsr3") ? tr("FSR 3.1 (temporal)")
                                 : id == QLatin1String("dlss") ? tr("NVIDIA DLSS")
                                                               : id);
@@ -938,9 +953,9 @@ void MainWindow::loadOverlay() {
     }
     framegen_combo->clear();
     for (const auto& id : framegen_ids) {
-        framegen_combo->addItem(id == QLatin1String("off")       ? tr("Off")
-                                : id == QLatin1String("builtin") ? tr("Built-in (2x)")
-                                : id == QLatin1String("fsr3")    ? tr("FSR 3 frame generation (2x)")
+        framegen_combo->addItem(id == QLatin1String("off")       ? tr("Desactivada")
+                                : id == QLatin1String("builtin") ? tr("Integrada (2x)")
+                                : id == QLatin1String("fsr3")    ? tr("Generación de fotogramas FSR 3 (2x)")
                                                                  : id + QStringLiteral(" (2x)"));
     }
     framegen_combo->setCurrentIndex(qMax(0, framegen_ids.indexOf(overlay.value(QStringLiteral("framegen"), QStringLiteral("off")))));
@@ -973,17 +988,17 @@ void MainWindow::saveOverlay() {
     overlay.setInt(QStringLiteral("present"), present_combo->currentIndex());
     overlay.setInt(QStringLiteral("fps"), fps_check->isChecked() ? 1 : 0);
     if (!overlay.save()) {
-        status_label->setText(tr("Could not write %1").arg(overlay.path()));
+        status_label->setText(tr("No se pudo escribir %1").arg(overlay.path()));
     }
 }
 
 QWidget* MainWindow::buildModsTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
-    auto* note = new QLabel(tr("Mods for the game. Standard Mario Kart 8 Deluxe data mods work: a folder or zip with a romfs (and exefs) folder, "
-                               "in the usual layouts (plain, Atmosphere's atmosphere/contents/..., or yuzu's load/...). Their files are layered over "
-                               "the game's own. Code patches (exefs, IPS) cannot be applied to this recompiled build and are marked. Everything "
-                               "is kept inside the game folder."));
+    auto* note = new QLabel(tr("Mods para el juego. Funcionan los mods de datos normales de Mario Kart 8 Deluxe: una carpeta o un zip con una carpeta romfs (y exefs), "
+                               "con las estructuras habituales (simple, atmosphere/contents/... de Atmosphere o load/... de yuzu). Sus archivos se ponen por encima "
+                               "de los del juego. Los parches de código (exefs, IPS) no se pueden aplicar a esta versión recompilada y se marcan. Todo "
+                               "se guarda dentro de la carpeta del juego."));
     note->setWordWrap(true);
     mods_list = new QListWidget;
     mod_details = new QLabel;
@@ -992,12 +1007,12 @@ QWidget* MainWindow::buildModsTab() {
     mod_progress = new QProgressBar;
     mod_progress->hide();
 
-    mod_import_button = new QPushButton(tr("Convert CTGP DX zip…"));
-    mod_add_folder_button = new QPushButton(tr("Add mod folder…"));
-    mod_add_zip_button = new QPushButton(tr("Add mod zip…"));
-    mod_toggle_button = new QPushButton(tr("Disable"));
-    mod_remove_button = new QPushButton(tr("Remove"));
-    mod_recomp_button = new QPushButton(tr("About this conversion"));
+    mod_import_button = new QPushButton(tr("Convertir zip de CTGP DX…"));
+    mod_add_folder_button = new QPushButton(tr("Añadir carpeta de mod…"));
+    mod_add_zip_button = new QPushButton(tr("Añadir zip de mod…"));
+    mod_toggle_button = new QPushButton(tr("Desactivar"));
+    mod_remove_button = new QPushButton(tr("Quitar"));
+    mod_recomp_button = new QPushButton(tr("Sobre esta conversión"));
     connect(mods_list, &QListWidget::currentRowChanged, this, [this] { refreshMods(); });
     // Each mod has its own check box: ticking turns it on, clearing turns it off (the folder is renamed, nothing is deleted).
     connect(mods_list, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
@@ -1024,7 +1039,8 @@ QWidget* MainWindow::buildModsTab() {
     });
     connect(mod_import_button, &QPushButton::clicked, this, &MainWindow::importCtgp);
     connect(mod_add_folder_button, &QPushButton::clicked, this, [this] {
-        const QString dir = QFileDialog::getExistingDirectory(this, tr("Select a mod folder (or a folder of mods)"));
+        const QString dir = QFileDialog::getExistingDirectory(this, tr("Elige la carpeta de un mod (o una carpeta con varios mods)"));
+        Portable::EnterAppDir();
         if (dir.isEmpty()) return;
         // A folder that is itself a mod, or a folder holding several mods (one per sub-folder).
         QStringList sources;
@@ -1039,14 +1055,15 @@ QWidget* MainWindow::buildModsTab() {
             for (const auto& s : sources) {
                 QString e;
                 if (ModAddon::ImportModFolder(s, root, &e, progress)) any = true;
-                else if (!e.contains(QLatin1String("No romfs or exefs")) && error) *error += e + QLatin1Char('\n'); // sub-folders that are not mods stay quiet
+                else if (!e.contains(QLatin1String("No hay carpeta romfs ni exefs")) && error) *error += e + QLatin1Char('\n'); // sub-folders that are not mods stay quiet
             }
-            if (!any && error && error->isEmpty()) *error = QStringLiteral("No mods found in that folder.");
+            if (!any && error && error->isEmpty()) *error = QStringLiteral("No hay mods en esa carpeta.");
             return any || (error && !error->isEmpty());
         });
     });
     connect(mod_add_zip_button, &QPushButton::clicked, this, [this] {
-        const QStringList zips = QFileDialog::getOpenFileNames(this, tr("Select mod zips"), {}, tr("Zip files (*.zip)"));
+        const QStringList zips = QFileDialog::getOpenFileNames(this, tr("Elige los zip de mods"), {}, tr("Archivos zip (*.zip)"));
+        Portable::EnterAppDir();
         if (zips.isEmpty()) return;
         const QString root = package.root();
         runImport([zips, root](QString* error, const std::function<bool(int, int, const QString&)>& progress) {
@@ -1077,7 +1094,7 @@ QWidget* MainWindow::buildModsTab() {
     connect(mod_remove_button, &QPushButton::clicked, this, [this] {
         const int row = mods_list->currentRow();
         const QString name = row <= 0 ? tr("CTGP DX") : (row - 1 < mod_entries.size() ? mod_entries[row - 1].name : QString{});
-        if (name.isEmpty() || QMessageBox::question(this, tr("Remove mod"), tr("Delete %1 from the game folder?").arg(name)) != QMessageBox::Yes) return;
+        if (name.isEmpty() || QMessageBox::question(this, tr("Quitar mod"), tr("¿Borrar %1 de la carpeta del juego?").arg(name)) != QMessageBox::Yes) return;
         QString error;
         const bool ok = row <= 0 ? ModAddon::RemoveCtgp(package.root(), &error) : ModAddon::RemoveMod(package.root(), name, &error);
         if (!ok) QMessageBox::warning(this, tr("Mods"), error);
@@ -1095,7 +1112,7 @@ QWidget* MainWindow::buildModsTab() {
     connect(this, &MainWindow::importFinished, this, [this](bool ok, const QString& error) {
         importing = false;
         mod_progress->hide();
-        if (!ok || !error.isEmpty()) QMessageBox::warning(this, tr("Import"), error.isEmpty() ? tr("Nothing was imported.") : error);
+        if (!ok || !error.isEmpty()) QMessageBox::warning(this, tr("Importar"), error.isEmpty() ? tr("No se ha importado nada.") : error);
         refreshMods();
         syncTextMerge();
     });
@@ -1133,13 +1150,13 @@ void MainWindow::refreshMods() {
         if (checkable) item->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
         mods_list->addItem(item);
     };
-    add_item(ctgp == ModAddon::State::NotImported ? tr("CTGP DX  (not imported)")
+    add_item(ctgp == ModAddon::State::NotImported ? tr("CTGP DX  (no importado)")
              : ctgp == ModAddon::State::Enabled   ? tr("CTGP DX")
-                                                  : tr("CTGP DX  (off)"),
+                                                  : tr("CTGP DX  (desactivado)"),
              ctgp != ModAddon::State::NotImported, ctgp == ModAddon::State::Enabled);
     mod_entries = have_root ? ModAddon::ListMods(root) : QList<ModAddon::ModEntry>{};
     for (const auto& m : mod_entries) {
-        add_item(m.name + (m.has_exefs ? tr("  [has code patches]") : QString{}), true, m.enabled);
+        add_item(m.name + (m.has_exefs ? tr("  [tiene parches de código]") : QString{}), true, m.enabled);
     }
     mods_list->setCurrentRow(qBound(0, keep_row < 0 ? 0 : keep_row, mods_list->count() - 1));
     const int row = mods_list->currentRow();
@@ -1149,17 +1166,17 @@ void MainWindow::refreshMods() {
     if (row <= 0) {
         switch (ctgp) {
         case ModAddon::State::NotImported:
-            text = tr("CTGP DX is not added yet. Choose your own CTGP Deluxe zip (the release for Mario Kart 8 Deluxe, the one with an "
-                      "atmosphere/contents folder) and its 64 tracks are added as extra cups with their own names, pictures and music. None of the "
-                      "game's courses are changed. Pick a cup in the in-game menu (F10, \"Extra cup\") before starting a Grand Prix. The pack's code "
-                      "cannot run in this recompiled build; see \"About this conversion\".");
+            text = tr("CTGP DX todavía no está añadido. Elige tu propio zip de CTGP Deluxe (la versión para Mario Kart 8 Deluxe, la que tiene una "
+                      "carpeta atmosphere/contents) y sus 64 circuitos se añaden como copas extra con sus nombres, imágenes y música. No se cambia "
+                      "ningún circuito del juego. Elige una copa en el menú del juego (F10, \"Copa extra\") antes de empezar un Gran Premio. El código "
+                      "del pack no puede ejecutarse en esta versión recompilada; mira \"Sobre esta conversión\".");
             selected_exists = false;
             break;
         case ModAddon::State::Enabled:
         case ModAddon::State::Disabled: {
             selected_enabled = ctgp == ModAddon::State::Enabled;
-            text = selected_enabled ? tr("CTGP DX: added, enabled. 16 extra cups (F10 menu, \"Extra cup\"); the game's own courses are untouched.")
-                                    : tr("CTGP DX: added, turned off (the game plays normally).");
+            text = selected_enabled ? tr("CTGP DX: añadido y activado. 16 copas extra (menú F10, \"Copa extra\"); los circuitos del juego no se tocan.")
+                                    : tr("CTGP DX: añadido, desactivado (el juego funciona normal).");
             text += QLatin1Char('\n') + ModAddon::CodeRecompBlocker(mod_info);
             break;
         }
@@ -1167,9 +1184,9 @@ void MainWindow::refreshMods() {
     } else if (row - 1 < mod_entries.size()) {
         const auto& m = mod_entries[row - 1];
         selected_enabled = m.enabled;
-        text = tr("%1: %2, %3 files (%4 MB).").arg(m.name, m.enabled ? tr("enabled") : tr("disabled")).arg(m.files).arg(m.bytes / (1024 * 1024));
-        text += QLatin1Char('\n') + (m.has_romfs ? tr("Data (romfs): applied over the game's files.") : tr("No romfs data."));
-        if (m.has_exefs) text += QLatin1Char('\n') + tr("Code patches (exefs): this recompiled build cannot apply them, so they are ignored.");
+        text = tr("%1: %2, %3 archivos (%4 MB).").arg(m.name, m.enabled ? tr("activado") : tr("desactivado")).arg(m.files).arg(m.bytes / (1024 * 1024));
+        text += QLatin1Char('\n') + (m.has_romfs ? tr("Datos (romfs): se aplican sobre los archivos del juego.") : tr("Sin datos romfs."));
+        if (m.has_exefs) text += QLatin1Char('\n') + tr("Parches de código (exefs): esta versión recompilada no puede aplicarlos, así que se ignoran.");
     } else {
         selected_exists = false;
     }
@@ -1178,10 +1195,10 @@ void MainWindow::refreshMods() {
     mod_add_folder_button->setEnabled(have_root && idle);
     mod_add_zip_button->setEnabled(have_root && idle);
     mod_toggle_button->setEnabled(idle && selected_exists);
-    mod_toggle_button->setText(selected_enabled ? tr("Disable") : tr("Enable"));
+    mod_toggle_button->setText(selected_enabled ? tr("Desactivar") : tr("Activar"));
     mod_remove_button->setEnabled(idle && selected_exists);
     mod_recomp_button->setEnabled(row <= 0 && ctgp != ModAddon::State::NotImported);
-    mod_recomp_button->setToolTip(tr("Shows why the pack's code cannot be recompiled into this build yet."));
+    mod_recomp_button->setToolTip(tr("Explica por qué el código del pack todavía no se puede recompilar en esta versión."));
 }
 
 void MainWindow::runImport(const std::function<bool(QString*, const std::function<bool(int, int, const QString&)>&)>& job) {
@@ -1208,13 +1225,13 @@ namespace {
 bool DumpVanillaUi(const QString& exe, const QString& workDir, const QStringList& args, QProcessEnvironment env, const QString& dir, QString* error) {
     QDir(dir).removeRecursively();
     QProcess dump;
-    env.insert(QStringLiteral("KARTRECOMP_ROMFS_DUMP"), QStringLiteral("tree=UI=%1/UI=message.sarc").arg(dir));
+    env.insert(QStringLiteral("KARTRECOMP_ROMFS_DUMP"), QStringLiteral("tree=UI=%1/UI=message.sarc").arg(Portable::RelativeTo(workDir, dir)));
     env.insert(QStringLiteral("KARTRECOMP_NO_MODS"), QStringLiteral("1"));
     dump.setProcessEnvironment(env);
     dump.setWorkingDirectory(workDir);
     dump.start(exe, args);
     if (!dump.waitForFinished(240000) || dump.exitCode() != 0) {
-        if (error) *error = QStringLiteral("Could not read the game's message files (is the game package set up?)");
+        if (error) *error = QStringLiteral("No se pudieron leer los archivos de textos del juego (¿está el juego instalado?)");
         return false;
     }
     return true;
@@ -1236,11 +1253,11 @@ void MainWindow::syncTextMerge() {
     const auto env = package.launchEnvironment();
     const QString exe = package.executable(), workDir = package.workingDirectory();
     runImport([root, args, env, exe, workDir](QString* error, const std::function<bool(int, int, const QString&)>& progress) {
-        progress(0, 1, QStringLiteral("merging mod texts"));
+        progress(0, 1, QStringLiteral("combinando los textos de los mods"));
         const QString vanilla = ModAddon::VanillaUiDir(root);
         if (!QFileInfo::exists(QDir(vanilla).filePath(QStringLiteral("UI/USen/message.sarc"))) && !DumpVanillaUi(exe, workDir, args, env, vanilla, error)) return false;
         const bool ok = ModAddon::UpdateTextMerge(root, vanilla, error);
-        progress(1, 1, QStringLiteral("done"));
+        progress(1, 1, QStringLiteral("hecho"));
         return ok;
     });
 }
@@ -1258,7 +1275,7 @@ bool MainWindow::resolveCtgpConflict(bool ctgp_wanted, bool other_wanted) {
     if (!ctgp_on || (others.isEmpty() && !other_wanted)) return true;
     if (ctgp_wanted) {
         const auto answer = QMessageBox::question(this, tr("CTGP DX"),
-            tr("CTGP DX's cups only work with every other mod turned off.\n\nTurn off these mods?\n\n%1").arg(others.join(QLatin1Char('\n'))));
+            tr("Las copas de CTGP DX solo funcionan con todos los demás mods desactivados.\n\n¿Desactivar estos mods?\n\n%1").arg(others.join(QLatin1Char('\n'))));
         if (answer != QMessageBox::Yes) return false;
         for (const auto& name : others) ModAddon::SetModEnabled(root, name, false, nullptr);
         refreshMods();
@@ -1266,7 +1283,7 @@ bool MainWindow::resolveCtgpConflict(bool ctgp_wanted, bool other_wanted) {
         return true;
     }
     const auto answer = QMessageBox::question(this, tr("CTGP DX"),
-        tr("CTGP DX's cups only work with every other mod turned off.\n\nTurn CTGP DX off and keep your other mods?"));
+        tr("Las copas de CTGP DX solo funcionan con todos los demás mods desactivados.\n\n¿Desactivar CTGP DX y mantener tus otros mods?"));
     if (answer != QMessageBox::Yes) return false;
     ModAddon::SetCtgpEnabled(root, false, nullptr);
     refreshMods();
@@ -1275,7 +1292,8 @@ bool MainWindow::resolveCtgpConflict(bool ctgp_wanted, bool other_wanted) {
 }
 
 void MainWindow::importCtgp() {
-    const QString zip = QFileDialog::getOpenFileName(this, tr("Select the CTGP DX zip"), {}, tr("Zip files (*.zip)"));
+    const QString zip = QFileDialog::getOpenFileName(this, tr("Elige el zip de CTGP DX"), {}, tr("Archivos zip (*.zip)"));
+    Portable::EnterAppDir();
     if (zip.isEmpty()) return;
     const auto info = ModAddon::AnalyzeCtgpPack(zip);
     if (!info.valid) {
@@ -1283,9 +1301,9 @@ void MainWindow::importCtgp() {
         return;
     }
     mod_info = info;
-    if (QMessageBox::question(this, tr("Add CTGP DX"),
-                              tr("This adds CTGP DX's 64 tracks as extra cups. None of the game's own courses are changed or replaced.\n\n%1\n\n"
-                                 "It takes a few minutes and about 5 GB. Continue?").arg(ModAddon::CodeRecompBlocker(info))) != QMessageBox::Yes) return;
+    if (QMessageBox::question(this, tr("Añadir CTGP DX"),
+                              tr("Esto añade los 64 circuitos de CTGP DX como copas extra. No se cambia ni se sustituye ningún circuito del juego.\n\n%1\n\n"
+                                 "Tarda unos minutos y ocupa unos 5 GB. ¿Continuar?").arg(ModAddon::CodeRecompBlocker(info))) != QMessageBox::Yes) return;
     const QString root = package.root();
     const QString out = QDir(root).filePath(QStringLiteral("mods/%1/CTGP DX Cups").arg(QLatin1String(ModAddon::kMk8dTitleId)));
     // Where the converted mod goes; an older conversion (or a disabled one) is replaced.

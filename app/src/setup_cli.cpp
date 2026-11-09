@@ -5,6 +5,10 @@
 #include <QCoreApplication>
 #include <cstdio>
 
+#include <QDir>
+#include <QFileInfo>
+
+#include "portable.h"
 #include "setup_pipeline.h"
 
 int main(int argc, char** argv) {
@@ -23,6 +27,19 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "usage: kartrecomp-setup --base <base.nsp> --update <update.nsp> --keys <prod.keys> --firmware <dir|zip> [--dlc <x.nsp>]...\n");
         return 1;
     }
+    // The files are named relative to the shell's folder; the pipeline works from the launcher's folder (Windows portable mode).
+    const auto fromShell = [](const QString& p) { return QFileInfo(p).absoluteFilePath(); };
+    in.base = fromShell(in.base);
+    in.update = fromShell(in.update);
+    in.keys = fromShell(in.keys);
+    in.firmware = fromShell(in.firmware);
+    for (QString& d : in.dlc) d = fromShell(d);
+    Portable::EnterAppDir();
+    in.base = Portable::Store(in.base);
+    in.update = Portable::Store(in.update);
+    in.keys = Portable::Store(in.keys);
+    in.firmware = Portable::Store(in.firmware);
+    in.dlc = Portable::Store(in.dlc);
     const auto result = RunSetupPipeline(in, DataLayout::Default(), BuilderPaths::Detect(), [](int permille, const QString& text) {
         std::printf("PROGRESS %d %s\n", permille, qPrintable(text));
         std::fflush(stdout);

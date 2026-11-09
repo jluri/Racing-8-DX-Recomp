@@ -48,7 +48,7 @@ int Merge(const QStringList& mod_dirs, const QString& vanilla_ui_dir, const QStr
     };
     for (const QString& lang : Languages(mod_dirs)) {
         CtgpConvert::Sarc base;
-        if (!ReadSarc(MessagePath(vanilla_ui_dir, lang), base)) return fail(QStringLiteral("Cannot read the game's message file for %1").arg(lang));
+        if (!ReadSarc(MessagePath(vanilla_ui_dir, lang), base)) return fail(QStringLiteral("No se puede leer el archivo de textos del juego para %1").arg(lang));
         CtgpConvert::Sarc result = base;
         QHash<QString, CtgpConvert::Msbt> parsed; // result members that are message tables
         for (auto it = base.files.constBegin(); it != base.files.constEnd(); ++it) {
@@ -60,7 +60,7 @@ int Merge(const QStringList& mod_dirs, const QString& vanilla_ui_dir, const QStr
             CtgpConvert::Sarc mod;
             const QString path = MessagePath(QDir(mod_dirs[i]).filePath(QStringLiteral("romfs")), lang);
             if (!QFileInfo::exists(path)) continue;
-            if (!ReadSarc(path, mod)) return fail(QStringLiteral("%1 has an unreadable message file for %2").arg(QFileInfo(mod_dirs[i]).fileName(), lang));
+            if (!ReadSarc(path, mod)) return fail(QStringLiteral("%1 tiene un archivo de textos ilegible para %2").arg(QFileInfo(mod_dirs[i]).fileName(), lang));
             for (auto it = mod.files.constBegin(); it != mod.files.constEnd(); ++it) {
                 const QString& name = it.key();
                 const auto theirs_it = base.files.constFind(name);
@@ -99,7 +99,7 @@ int Merge(const QStringList& mod_dirs, const QString& vanilla_ui_dir, const QStr
         const QString target = MessagePath(QDir(out_dir).filePath(QStringLiteral("romfs")), lang);
         QDir().mkpath(QFileInfo(target).absolutePath());
         QFile out(target);
-        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate) || out.write(result.write()) < 0) return fail(QStringLiteral("Cannot write %1").arg(target));
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate) || out.write(result.write()) < 0) return fail(QStringLiteral("No se puede escribir %1").arg(target));
         ++written;
     }
     if (changed) *changed = taken;

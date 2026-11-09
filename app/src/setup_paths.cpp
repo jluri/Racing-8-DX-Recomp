@@ -14,7 +14,9 @@
 
 DataLayout DataLayout::FromRoots(const QString& data, const QString& cache) { return {data, cache}; }
 
-QString DataLayout::PortableRoot() { return QDir::cleanPath(QCoreApplication::applicationDirPath() + "/userdata"); }
+// Relative to the launcher's folder, which is the current directory on Windows (see portable.h): nothing stores the drive or the
+// folder names above it, so the whole folder can be moved.
+QString DataLayout::PortableRoot() { return QStringLiteral("userdata"); }
 
 QString DataLayout::ConfigRoot() {
 #ifdef Q_OS_WIN
@@ -47,7 +49,12 @@ DataLayout DataLayout::Default() {
 
 BuilderPaths BuilderPaths::Detect() {
     BuilderPaths p;
+#ifdef Q_OS_WIN
+    // Portable: relative to the launcher's folder (the current directory), e.g. "engine/mk8d-engine.exe".
+    const QString app = QStringLiteral(".");
+#else
     const QString app = QCoreApplication::applicationDirPath();
+#endif
     // Installed: <root>/{bin/kartrecomp, engine/, tools/, toolchain/, data/}; AppImage: the same under usr/. A source checkout has them
     // under local/ and data/ beside build/app/kartrecomp.
     const QStringList roots = {app, QDir::cleanPath(app + "/.."), QDir::cleanPath(app + "/../lib/kartrecomp"), QDir::cleanPath(app + "/../..")};
@@ -67,18 +74,18 @@ BuilderPaths BuilderPaths::Detect() {
     p.toolchain = pick("KARTRECOMP_TOOLCHAIN", {"toolchain", "local/toolchain"});
     p.hotList = pick("KARTRECOMP_HOT_LIST", {"data/mk8d-3.0.4/hot_blocks.txt"});
     if (!p.engine.isEmpty()) {
-        QFile v(QFileInfo(p.engine).absolutePath() + "/ENGINE_VERSION");
+        QFile v(QFileInfo(p.engine).path() + "/ENGINE_VERSION");
         if (v.open(QIODevice::ReadOnly)) p.engineVersion = QString::fromUtf8(v.readAll()).trimmed();
     }
     return p;
 }
 
 bool BuilderPaths::complete(QString* missing) const {
-    const std::pair<const char*, QString> parts[] = {{"exporter", exporter}, {"engine", engine}, {"toolchain", toolchain}, {"hot block list", hotList}};
+    const std::pair<const char*, QString> parts[] = {{"el exportador", exporter}, {"el motor", engine}, {"el compilador (toolchain)", toolchain}, {"la lista de bloques calientes", hotList}};
     for (const auto& [name, path] : parts) {
         if (path.isEmpty() || !QFileInfo::exists(path)) {
-            if (missing) *missing = QStringLiteral("The %1 is missing (%2). Reinstall the launcher: unzip the whole download and run kartrecomp.exe from inside that folder, with its tools, engine and toolchain folders beside it.")
-                                        .arg(name, path.isEmpty() ? QStringLiteral("not found next to %1").arg(QCoreApplication::applicationDirPath()) : path);
+            if (missing) *missing = QStringLiteral("Falta %1 (%2). Vuelve a instalar el launcher: descomprime la descarga completa y abre kartrecomp.exe desde esa carpeta, con sus carpetas tools, engine y toolchain al lado.")
+                                        .arg(name, path.isEmpty() ? QStringLiteral("no está junto a %1").arg(QCoreApplication::applicationDirPath()) : path);
             return false;
         }
     }
@@ -92,7 +99,7 @@ bool PlaceFile(const QString& from, const QString& to, bool move, QString* error
     const QFileInfo src(from);
     if (move && !src.isFile() && QFileInfo(to).isFile()) return true; // moved by an earlier build; the installed copy is the game file
     if (!src.isFile()) {
-        *error = QStringLiteral("%1 was not found.").arg(from);
+        *error = QStringLiteral("No se encontró %1.").arg(from);
         return false;
     }
     if (QFileInfo(to).exists() && QFileInfo(to).canonicalFilePath() == src.canonicalFilePath()) return true; // already in place
@@ -104,7 +111,7 @@ bool PlaceFile(const QString& from, const QString& to, bool move, QString* error
         return true;
     }
     QFile::remove(to); // never leave half a file behind
-    *error = QStringLiteral("Could not %1 %2 to %3 (is there enough free space?).").arg(move ? QStringLiteral("move") : QStringLiteral("copy"), from, to);
+    *error = QStringLiteral("No se pudo %1 %2 a %3 (¿hay suficiente espacio libre?).").arg(move ? QStringLiteral("mover") : QStringLiteral("copiar"), from, to);
     return false;
 }
 } // namespace
@@ -115,8 +122,8 @@ QString InstallInputs(const SetupInputs& in, const DataLayout& l) {
         !PlaceFile(in.keys, l.keysFile(), false, &error))
         return error;
     // title.keys beside prod.keys, when the user has one
-    const QString title = QFileInfo(in.keys).absolutePath() + "/title.keys";
-    if (QFileInfo(title).isFile() && !PlaceFile(title, QFileInfo(l.keysFile()).absolutePath() + "/title.keys", false, &error)) return error;
+    const QString title = QFileInfo(in.keys).path() + "/title.keys";
+    if (QFileInfo(title).isFile() && !PlaceFile(title, QFileInfo(l.keysFile()).path() + "/title.keys", false, &error)) return error;
     // DLC files already in the folder (moved there by an earlier build) stay; anything the user dropped from the list goes
     QSet<QString> wanted;
     for (const QString& dlc : in.dlc) wanted.insert(QFileInfo(dlc).fileName());
@@ -134,20 +141,20 @@ QString InstallInputs(const SetupInputs& in, const DataLayout& l) {
         int n = 0;
         while (it.hasNext()) {
             it.next();
-            if (!QFile::copy(it.filePath(), l.firmwareDir() + "/" + it.fileName())) return QStringLiteral("Could not copy the firmware file %1.").arg(it.fileName());
+            if (!QFile::copy(it.filePath(), l.firmwareDir() + "/" + it.fileName())) return QStringLiteral("No se pudo copiar el archivo de firmware %1.").arg(it.fileName());
             ++n;
         }
-        if (n == 0) return QStringLiteral("The firmware folder holds no .nca files.");
+        if (n == 0) return QStringLiteral("La carpeta del firmware no tiene archivos .nca.");
     } else {
         ZipArchive zip;
-        if (!zip.open(in.firmware, &error)) return QStringLiteral("Cannot open the firmware zip: %1").arg(error);
+        if (!zip.open(in.firmware, &error)) return QStringLiteral("No se puede abrir el zip del firmware: %1").arg(error);
         int n = 0;
         for (const ZipEntry& e : zip.entries()) {
             if (e.is_directory() || !e.name.endsWith(".nca", Qt::CaseInsensitive)) continue;
-            if (!zip.extract(e, l.firmwareDir() + "/" + QFileInfo(e.name).fileName(), &error)) return QStringLiteral("Cannot unpack the firmware: %1").arg(error);
+            if (!zip.extract(e, l.firmwareDir() + "/" + QFileInfo(e.name).fileName(), &error)) return QStringLiteral("No se puede descomprimir el firmware: %1").arg(error);
             ++n;
         }
-        if (n == 0) return QStringLiteral("The firmware zip holds no .nca files.");
+        if (n == 0) return QStringLiteral("El zip del firmware no tiene archivos .nca.");
     }
     return {};
 }

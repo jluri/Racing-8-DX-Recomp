@@ -1,0 +1,62 @@
+# Spanish launcher with relative paths (kartrecomp.exe, kartrecomp-setup.exe, kartrecomp-build.exe + Qt's Spanish texts).
+# The files are committed to the "binarios-launcher" branch (one commit, replaced on every run) so they can be fetched with git.
+name: Launcher en espanol
+on:
+  workflow_dispatch:
+  push:
+    branches: [espanol-rutas-relativas]
+    paths: ['app/**', 'CMakeLists.txt', '.github/workflows/espanol-launcher.yml']
+permissions:
+  contents: write
+concurrency:
+  group: espanol-launcher
+  cancel-in-progress: true
+jobs:
+  launcher:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.7.3
+          arch: win64_msvc2019_64
+          cache: true
+      - name: zlib
+        run: vcpkg install zlib:x64-windows-static-md
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+          cmake --build build --target kartrecomp kartrecomp-setup kartrecomp-build
+      - name: Stage
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force stage\launcher\translations | Out-Null
+          Copy-Item build\app\kartrecomp.exe, build\app\kartrecomp-setup.exe, build\app\kartrecomp-build.exe stage\launcher\
+          $tr = Join-Path $env:QT_ROOT_DIR 'translations'
+          Get-ChildItem $tr -Filter 'qt*_es.qm' | Copy-Item -Destination stage\launcher\translations\
+          Get-ChildItem -Recurse stage\launcher
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher
+          path: stage/launcher
+          if-no-files-found: error
+
+  publish:
+    needs: [launcher]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher
+          path: out
+      - name: Commit to the binarios-launcher branch
+        run: |
+          cd out
+          echo "source: ${{ github.sha }}" > ORIGEN.txt
+          git init -q -b binarios-launcher
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Binarios de ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" binarios-launcher

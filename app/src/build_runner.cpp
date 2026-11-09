@@ -76,7 +76,7 @@ bool BuildRunner::LinkModule(const QString& compiler, const QStringList& linkArg
     QDir().mkpath(QFileInfo(rspPath).absolutePath());
     QFile rsp(rspPath);
     if (!rsp.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        if (error) *error = QStringLiteral("cannot write %1").arg(rspPath);
+        if (error) *error = QStringLiteral("no se puede escribir %1").arg(rspPath);
         return false;
     }
     for (const QString& o : objects) rsp.write("\"" + QString(o).replace('\\', '/').toUtf8() + "\"\n");
@@ -85,12 +85,12 @@ bool BuildRunner::LinkModule(const QString& compiler, const QStringList& linkArg
     DieWithParent(link);
     link.start(compiler, QStringList{"-shared"} + linkArgs + QStringList{"-o", out, "@" + rspPath} + libs + builtins);
     if (!link.waitForStarted()) {
-        if (error) *error = QStringLiteral("cannot start %1: %2").arg(compiler, link.errorString());
+        if (error) *error = QStringLiteral("no se puede iniciar %1: %2").arg(compiler, link.errorString());
         return false;
     }
     while (!link.waitForFinished(200)) {
         if (link.state() == QProcess::NotRunning) break; // never wait on a process that is already gone
-        if (cancel && cancel->load()) { link.kill(); link.waitForFinished(); if (error) *error = QStringLiteral("Cancelled."); return false; }
+        if (cancel && cancel->load()) { link.kill(); link.waitForFinished(); if (error) *error = QStringLiteral("Cancelado."); return false; }
     }
     if (link.exitStatus() != QProcess::NormalExit || link.exitCode() != 0) {
         if (error) *error = QString::fromLocal8Bit(link.readAllStandardError()).trimmed();
@@ -171,7 +171,7 @@ bool BuildRunner::RunCompileJob(const QString& compiler, const CompileJob& job, 
     DieWithParent(p);
     p.start(compiler, job.args + QStringList{"-c", job.source, "-o", job.object});
     if (!p.waitForStarted()) {
-        if (error) *error = QStringLiteral("cannot start %1").arg(compiler);
+        if (error) *error = QStringLiteral("no se puede iniciar %1").arg(compiler);
         return false;
     }
     while (!p.waitForFinished(200)) {
@@ -179,24 +179,24 @@ bool BuildRunner::RunCompileJob(const QString& compiler, const CompileJob& job, 
             p.kill();
             p.waitForFinished();
             QFile::remove(job.object);
-            if (error) *error = QStringLiteral("Cancelled.");
+            if (error) *error = QStringLiteral("Cancelado.");
             return false;
         }
     }
     if (p.exitStatus() != QProcess::NormalExit) {
         QFile::remove(job.object);
-        if (error) *error = QStringLiteral("The compiler was stopped, most likely because the PC ran out of memory. Close other programs and press Build again: it resumes where it stopped.");
+        if (error) *error = QStringLiteral("El compilador se ha detenido, seguramente porque el PC se quedó sin memoria. Cierra otros programas y pulsa Construir otra vez: seguirá donde se quedó.");
         return false;
     }
     if (p.exitCode() != 0 || !QFile::exists(job.object)) {
         const QString text = QString::fromLocal8Bit(p.readAllStandardError()).trimmed();
-        if (error) *error = text.contains(QStringLiteral("No space left")) ? QStringLiteral("Out of disk space. Free some space and press Build again: it resumes where it stopped.") : text;
+        if (error) *error = text.contains(QStringLiteral("No space left")) ? QStringLiteral("No queda espacio en disco. Libera espacio y pulsa Construir otra vez: seguirá donde se quedó.") : text;
         QFile::remove(job.object);
         return false;
     }
     QFile marker(job.marker);
     if (!marker.open(QIODevice::WriteOnly)) {
-        if (error) *error = QStringLiteral("cannot write %1").arg(job.marker);
+        if (error) *error = QStringLiteral("no se puede escribir %1").arg(job.marker);
         return false;
     }
     return true;
@@ -235,7 +235,7 @@ BuildResult BuildRunner::Build(const BuildPlan& plan, const std::function<void(i
     QSet<QByteArray> hot;
     if (!plan.hotList.isEmpty()) {
         QFile f(plan.hotList);
-        if (!f.open(QIODevice::ReadOnly)) return {false, QStringLiteral("cannot read the hot block list %1").arg(plan.hotList)};
+        if (!f.open(QIODevice::ReadOnly)) return {false, QStringLiteral("no se puede leer la lista de bloques calientes %1").arg(plan.hotList)};
         hot = UnitSplit::ParseHotList(f.readAll());
     }
     static const QStringList kModuleDirs = {"rtld", "main", "subsdk0", "subsdk1", "subsdk2", "subsdk3", "subsdk4",
@@ -269,7 +269,7 @@ BuildResult BuildRunner::Build(const BuildPlan& plan, const std::function<void(i
             m.jobs += PlanCompileJobs(QDir(mdir).filePath("src"), work + "/obj-index", {index}, {index}, mdir);
         modules.append(std::move(m));
     }
-    if (modules.isEmpty()) return {false, QStringLiteral("%1 holds no exported modules").arg(plan.exportDir)};
+    if (modules.isEmpty()) return {false, QStringLiteral("%1 no contiene módulos exportados").arg(plan.exportDir)};
 
     for (Module& m : modules)
         for (CompileJob& j : m.jobs) j.args = plan.compileArgs + j.args;
@@ -339,8 +339,8 @@ BuildResult BuildRunner::Build(const BuildPlan& plan, const std::function<void(i
         });
     }
     for (auto& t : linkers) t.join();
-    if (cancel && cancel->load()) return {false, QStringLiteral("Cancelled.")};
+    if (cancel && cancel->load()) return {false, QStringLiteral("Cancelado.")};
     if (!linkFailure.isEmpty()) return {false, linkFailure};
-    if (linked != modules.size()) return {false, QStringLiteral("linking was interrupted")};
+    if (linked != modules.size()) return {false, QStringLiteral("el enlazado se ha interrumpido")};
     return {true, {}};
 }

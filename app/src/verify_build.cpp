@@ -9,6 +9,7 @@
 #include <QThread>
 
 #include "build_runner.h"
+#include "portable.h"
 
 namespace {
 // Blocks run by the guest when the title is in its main loop (a real boot runs billions within a minute); far above the loader's own work.
@@ -55,14 +56,17 @@ VerifyResult VerifyBuild(const QString& engine, const DataLayout& layout, int ti
     const QString coveragePath = layout.cacheRoot + "/verify/recomp_coverage.txt";
     QDir().mkpath(QFileInfo(coveragePath).absolutePath());
     QFile::remove(coveragePath);
+    // Every path the engine gets is relative to its working directory (its own folder): nothing absolute is written anywhere.
+    const QString engineDir = QFileInfo(engine).path();
+    const auto rel = [&engineDir](const QString& p) { return Portable::RelativeTo(engineDir, p); };
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("KARTRECOMP_APP_NAME", "kartrecomp");
-    env.insert("XDG_DATA_HOME", QFileInfo(layout.dataRoot).absolutePath());
-    env.insert("XDG_CACHE_HOME", QFileInfo(layout.cacheRoot).absolutePath());
-    env.insert("XDG_CONFIG_HOME", layout.cacheRoot + "/verify/config"); // a throwaway config: the user's own settings must not change the check
+    env.insert("XDG_DATA_HOME", rel(QFileInfo(layout.dataRoot).path()));
+    env.insert("XDG_CACHE_HOME", rel(QFileInfo(layout.cacheRoot).path()));
+    env.insert("XDG_CONFIG_HOME", rel(layout.cacheRoot + "/verify/config")); // a throwaway config: the user's own settings must not change the check
     env.insert("KARTRECOMP_VERIFY_BOOT", "1");
     env.insert("SUYU_CMD_PERF_SAMPLE", "1"); // one "PERF game_fps=..." line per second in the log: the proof that frames were presented
-    env.insert("SUYU_RECOMP_COVERAGE_PATH", coveragePath);
+    env.insert("SUYU_RECOMP_COVERAGE_PATH", rel(coveragePath));
     env.insert("SDL_VIDEODRIVER", "dummy"); // no window: the Null renderer needs no display
     env.insert("SDL_AUDIODRIVER", "dummy");
     env.remove("KARTRECOMP_NATIVE_GPU");
@@ -70,9 +74,9 @@ VerifyResult VerifyBuild(const QString& engine, const DataLayout& layout, int ti
     QProcess p;
     BuildRunner::DieWithParent(p);
     p.setProcessEnvironment(env);
-    p.setWorkingDirectory(QFileInfo(engine).absolutePath());
-    p.start(engine, {"--module-dir", layout.moduleDir(), "--content-base", layout.base(), "--content-update", layout.update()});
-    if (!p.waitForStarted(10000)) return {false, QStringLiteral("Cannot start the game engine (%1).").arg(engine)};
+    p.setWorkingDirectory(engineDir);
+    p.start(engine, {"--module-dir", rel(layout.moduleDir()), "--content-base", rel(layout.base()), "--content-update", rel(layout.update())});
+    if (!p.waitForStarted(10000)) return {false, QStringLiteral("No se puede iniciar el motor del juego (%1).").arg(engine)};
     const auto stop = [&p] {
         p.kill();
         p.waitForFinished(5000);
@@ -80,23 +84,23 @@ VerifyResult VerifyBuild(const QString& engine, const DataLayout& layout, int ti
     QElapsedTimer clock;
     clock.start();
     while (clock.elapsed() < timeoutSec * 1000LL) {
-        if (cancel && cancel->load()) { stop(); return {false, QStringLiteral("Cancelled.")}; }
+        if (cancel && cancel->load()) { stop(); return {false, QStringLiteral("Cancelado.")}; }
         if (p.waitForFinished(250)) {
             const QString err = QString::fromLocal8Bit(p.readAllStandardError()).trimmed();
             // An integer division by zero at boot (Windows 0xc0000094, Linux SIGFPE = signal 8) came from keys older than the firmware
             // (engines before v0.2.3; newer engines stop with exit code 6 and say so themselves).
             const bool fw_crash = err.contains(QLatin1String("0xc0000094"), Qt::CaseInsensitive) || err.contains(QLatin1String("SIGFPE")) ||
                                   (p.exitStatus() == QProcess::CrashExit && p.exitCode() == 8) || p.exitCode() == 136;
-            const QString hint = fw_crash ? QStringLiteral("\n\nThis crash comes from keys older than the firmware: use prod.keys from the same firmware version or newer (or an older firmware that matches your keys) and build again.")
+            const QString hint = fw_crash ? QStringLiteral("\n\nEste cierre lo provocan unas claves más antiguas que el firmware: usa un prod.keys de la misma versión del firmware o más nuevo (o un firmware más antiguo que encaje con tus claves) y vuelve a construir.")
                                           : QString();
-            return {false, QStringLiteral("The game stopped during its test boot: %1%2").arg(err.isEmpty() ? QStringLiteral("no message (exit %1)").arg(p.exitCode()) : err, hint)};
+            return {false, QStringLiteral("El juego se ha parado en su arranque de prueba: %1%2").arg(err.isEmpty() ? QStringLiteral("sin mensaje (salida %1)").arg(p.exitCode()) : err, hint)};
         }
         const Coverage c = ReadCoverage(coveragePath);
         if (!c.present) continue;
         if (c.jit > 0 || c.killed) {
             stop();
-            return {false, c.killed ? QStringLiteral("The game's test boot lost a thread: some code was not recompiled.")
-                                    : QStringLiteral("The build is not fully static (%1 transitions to a JIT, which this project never allows).").arg(c.jit)};
+            return {false, c.killed ? QStringLiteral("El arranque de prueba perdió un hilo: hay código que no se recompiló.")
+                                    : QStringLiteral("La construcción no es totalmente estática (%1 saltos a un JIT, algo que este proyecto nunca permite).").arg(c.jit)};
         }
         if (c.blocks >= kMainLoopBlocks && PresentingSeconds(layout.dataRoot + "/log/suyu_log.txt") >= kFrameSeconds) {
             stop();
@@ -106,6 +110,6 @@ VerifyResult VerifyBuild(const QString& engine, const DataLayout& layout, int ti
     const Coverage last = ReadCoverage(coveragePath);
     stop();
     if (last.present && last.blocks >= kMainLoopBlocks)
-        return {false, QStringLiteral("The game ran but never presented frames in %1 s of the test boot: it is probably stuck (check the firmware and keys).").arg(timeoutSec)};
-    return {false, QStringLiteral("The game did not reach its main loop within %1 s of the test boot.").arg(timeoutSec)};
+        return {false, QStringLiteral("El juego arrancó pero no mostró imagen en %1 s del arranque de prueba: seguramente se ha atascado (revisa el firmware y las claves).").arg(timeoutSec)};
+    return {false, QStringLiteral("El juego no llegó a su bucle principal en %1 s del arranque de prueba.").arg(timeoutSec)};
 }

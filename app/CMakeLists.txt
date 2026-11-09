@@ -9,10 +9,14 @@ qt_standard_project_setup()
 
 # The build pipeline (unit splitting, compile scheduling), shared by the launcher and the tests.
 add_library(kartrecomp_build STATIC src/unit_split.cpp src/unit_split.h src/build_runner.cpp src/build_runner.h
-    src/nsp_info.cpp src/nsp_info.h src/keys_check.cpp src/keys_check.h src/setup_validate.cpp src/setup_validate.h src/setup_paths.cpp src/setup_paths.h src/zip_archive.cpp src/zip_archive.h src/verify_build.cpp src/verify_build.h src/game_package.cpp src/game_package.h src/ini_file.cpp src/ini_file.h src/setup_pipeline.cpp src/setup_pipeline.h)
+    src/nsp_info.cpp src/nsp_info.h src/keys_check.cpp src/keys_check.h src/setup_validate.cpp src/setup_validate.h src/setup_paths.cpp src/setup_paths.h src/zip_archive.cpp src/zip_archive.h src/verify_build.cpp src/verify_build.h src/game_package.cpp src/game_package.h src/ini_file.cpp src/ini_file.h src/setup_pipeline.cpp src/setup_pipeline.h src/portable.cpp src/portable.h)
 find_package(ZLIB REQUIRED)
 target_link_libraries(kartrecomp_build PUBLIC Qt6::Core ZLIB::ZLIB)
 target_include_directories(kartrecomp_build PUBLIC src)
+# The launcher's texts are in Spanish (UTF-8 source): MSVC must not read the files in the system code page.
+if (MSVC)
+    target_compile_options(kartrecomp_build PUBLIC /utf-8)
+endif()
 
 qt_add_executable(kartrecomp
     src/main.cpp

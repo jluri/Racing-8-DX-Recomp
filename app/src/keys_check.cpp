@@ -51,11 +51,11 @@ QString MissingKeyName(const QString& path) {
 QString KeyProblemText(KeyProblem p, const QString& name) {
     switch (p) {
     case KeyProblem::None: return {};
-    case KeyProblem::NoFile: return QStringLiteral("prod.keys could not be read.");
-    case KeyProblem::MissingHeaderKey: return QStringLiteral("This prod.keys has no header_key; dump it again from your own console.");
-    case KeyProblem::MissingMasterKey: return QStringLiteral("This prod.keys has no master_key_XX entries; dump it again from your own console.");
+    case KeyProblem::NoFile: return QStringLiteral("No se pudo leer prod.keys.");
+    case KeyProblem::MissingHeaderKey: return QStringLiteral("Este prod.keys no tiene header_key; vuelve a volcarlo desde tu propia consola.");
+    case KeyProblem::MissingMasterKey: return QStringLiteral("Este prod.keys no tiene entradas master_key_XX; vuelve a volcarlo desde tu propia consola.");
     case KeyProblem::MissingDerivationKey:
-        return QStringLiteral("This prod.keys is missing the entry %1; dump it again from your own console.").arg(name.isEmpty() ? QStringLiteral("(a key-derivation source)") : name);
+        return QStringLiteral("A este prod.keys le falta la entrada %1; vuelve a volcarlo desde tu propia consola.").arg(name.isEmpty() ? QStringLiteral("(una fuente de derivación de claves)") : name);
     }
     return {};
 }

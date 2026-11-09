@@ -28,6 +28,7 @@ public:
     QString modsRoot() const;          // the folder holding mods/ and addons/
     QString pluginsParent() const;     // the folder holding plugins/
     QString workingDirectory() const;  // where the game process runs
+    QString forEngine(const QString& path) const; // a path as the game process sees it: relative to its working directory
 
     QString root() const { return root_dir; }
     QString suyuHome() const { return suyu_home; }

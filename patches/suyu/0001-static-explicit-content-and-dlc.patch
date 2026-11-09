@@ -13207,30 +13207,30 @@ index 0000000000..831ea3094c
 +
 +Menu::Menu(std::vector<std::string> upscaler_names) {
 +    items.resize(kRowCount);
-+    items[kUpscaler] = {"Upscaler", std::move(upscaler_names), 0, true, ""};
-+    items[kModel] = {"Model", {"Auto"}, 0, true, ""};
-+    items[kGraphics] = {"Graphics quality", {"Launcher setting", "Low (handheld)", "High (docked)"}, 0, true, ""};
-+    items[kResolution] = {"Output resolution", {"Launcher setting", "720p", "1080p", "1440p", "4K (2160p)"}, 0, true, ""};
-+    items[kQuality] = {"3D render scale",
-+                       {"Off", "100% (DLAA / native AA)", "67% (quality)", "58% (balanced)", "50% (performance)",
-+                        "33% (ultra performance)", "150% (supersample)", "200% (supersample)"},
++    items[kUpscaler] = {"Reescalador", std::move(upscaler_names), 0, true, ""};
++    items[kModel] = {"Modelo", {"Auto"}, 0, true, ""};
++    items[kGraphics] = {"Calidad grafica", {"Ajuste del launcher", "Baja (portatil)", "Alta (en base)"}, 0, true, ""};
++    items[kResolution] = {"Resolucion de salida", {"Ajuste del launcher", "720p", "1080p", "1440p", "4K (2160p)"}, 0, true, ""};
++    items[kQuality] = {"Escala de render 3D",
++                       {"No", "100% (DLAA / AA nativo)", "67% (calidad)", "58% (equilibrado)", "50% (rendimiento)",
++                        "33% (ultra rendimiento)", "150% (supermuestreo)", "200% (supermuestreo)"},
 +                       0, true, ""};
-+    items[kSharp] = {"Sharpening", {"Off", "Low", "Medium", "High"}, 3, true, ""};
-+    items[kJitter] = {"Camera jitter", {"Off", "On"}, 0, true, ""};
-+    items[kFrameGen] = {"Frame generation", {"Off", "Built-in (2x)"}, 0, true, "needs a temporal upscaler"};
-+    items[kHdr] = {"HDR output", {"Off", "On"}, 0, false, "display not in HDR mode"};
-+    items[kHdrPaper] = {"HDR paper white", {"100 nits", "150 nits", "203 nits (standard)", "250 nits", "300 nits"}, 1, false, "needs HDR output"};
-+    items[kHdrPeak] = {"HDR peak brightness", {"400 nits", "600 nits", "800 nits", "1000 nits", "1500 nits"}, 0, false, "needs HDR output"};
-+    items[kPresent] = {"Present mode", {"Mailbox", "FIFO (vsync)", "Immediate"}, 0, true, ""};
-+    items[kSpeed] = {"Speed limit", {"50%", "75%", "100%", "125%", "150%", "200%", "Off"}, kSpeedDefault, true, ""};
-+    items[kFps] = {"FPS counter", {"Off", "On"}, 0, true, ""};
-+    items[kRecord] = {"Record my inputs", {"Off", "Recording"}, 0, true, ""};
++    items[kSharp] = {"Nitidez", {"No", "Baja", "Media", "Alta"}, 3, true, ""};
++    items[kJitter] = {"Jitter de camara", {"No", "Si"}, 0, true, ""};
++    items[kFrameGen] = {"Generacion de fotogramas", {"No", "Integrada (2x)"}, 0, true, "requiere un reescalador temporal"};
++    items[kHdr] = {"Salida HDR", {"No", "Si"}, 0, false, "la pantalla no esta en modo HDR"};
++    items[kHdrPaper] = {"Blanco de papel HDR", {"100 nits", "150 nits", "203 nits (estandar)", "250 nits", "300 nits"}, 1, false, "requiere salida HDR"};
++    items[kHdrPeak] = {"Brillo maximo HDR", {"400 nits", "600 nits", "800 nits", "1000 nits", "1500 nits"}, 0, false, "requiere salida HDR"};
++    items[kPresent] = {"Modo de presentacion", {"Mailbox", "FIFO (vsync)", "Inmediato"}, 0, true, ""};
++    items[kSpeed] = {"Limite de velocidad", {"50%", "75%", "100%", "125%", "150%", "200%", "Sin limite"}, kSpeedDefault, true, ""};
++    items[kFps] = {"Contador de FPS", {"No", "Si"}, 0, true, ""};
++    items[kRecord] = {"Grabar mis controles", {"No", "Grabando"}, 0, true, ""};
 +    for (int i = 0; i < 4; ++i) {
-+        items[kPlayer1 + i] = {"Player " + std::to_string(i + 1) + " controller", {"Disconnected", "Keyboard"}, 1, false, "no controller info yet"};
++        items[kPlayer1 + i] = {"Mando jugador " + std::to_string(i + 1), {"Desconectado", "Teclado"}, 1, false, "aun no hay datos de mandos"};
 +    }
 +    // Extra cups (CTGP DX's, added without replacing any course): "extra_cups.txt" in the game folder lists them, one per line as
 +    // "Cup name|CT_00 CT_01 CT_02 CT_03". Choosing one writes extra_cup.txt, which the Grand Prix start hook reads (see docs/CTGP.md).
-+    items[kExtraCup] = {"Extra cup (next Grand Prix)", {"Off"}, 0, false, "none installed"};
++    items[kExtraCup] = {"Copa extra (proximo Gran Premio)", {"No"}, 0, false, "no hay ninguna instalada"};
 +    if (std::ifstream list("extra_cups.txt"); list) {
 +        for (std::string line; std::getline(list, line);) {
 +            const auto bar = line.find('|');
@@ -13240,12 +13240,12 @@ index 0000000000..831ea3094c
 +        }
 +        if (!extra_cups.empty()) {
 +            items[kExtraCup].enabled = true;
-+            items[kExtraCup].note = "press A in the cup screen as usual";
++            items[kExtraCup].note = "pulsa A en la pantalla de copas como siempre";
 +        }
 +    }
 +    std::remove("extra_cup.txt"); // never start with an old choice
 +    items[kMods] = {"Mods", {}, 0, true, ""};
-+    items[kClose] = {"Close menu", {}, 0, true, ""};
++    items[kClose] = {"Cerrar menu", {}, 0, true, ""};
 +    live.speed_limit = kSpeedDefault;
 +}
 +
@@ -13285,7 +13285,7 @@ index 0000000000..831ea3094c
 +}
 +
 +void Menu::SetFrameGenPlugins(const std::vector<std::string>& names) {
-+    items[kFrameGen].options = {"Off", "Built-in (2x)"};
++    items[kFrameGen].options = {"No", "Integrada (2x)"};
 +    for (const auto& n : names) items[kFrameGen].options.push_back(n + " (2x)");
 +}
 +
@@ -13293,15 +13293,15 @@ index 0000000000..831ea3094c
 +    Item& item = items[kModel];
 +    item.options = names.size() > 1 ? names : std::vector<std::string>{"Auto"};
 +    item.value = std::clamp(choice, 0, static_cast<int>(item.options.size()) - 1);
-+    item.note = active.empty() ? "" : "running " + active;
++    item.note = active.empty() ? "" : "en uso: " + active;
 +    live.model = item.value;
 +}
 +
 +void Menu::SetHdrAvailable(bool on) {
 +    items[kHdr].enabled = on;
-+    items[kHdr].note = on ? "" : "display not in HDR mode";
++    items[kHdr].note = on ? "" : "la pantalla no esta en modo HDR";
 +    items[kHdrPaper].enabled = items[kHdrPeak].enabled = on;
-+    items[kHdrPaper].note = items[kHdrPeak].note = on ? "" : "needs HDR output";
++    items[kHdrPaper].note = items[kHdrPeak].note = on ? "" : "requiere salida HDR";
 +}
 +
 +int Menu::SpeedLimitPercent() const {
@@ -13359,7 +13359,7 @@ index 0000000000..831ea3094c
 +    pads_version = pads.version;
 +    for (int i = 0; i < 4; ++i) {
 +        Item& item = items[kPlayer1 + i];
-+        item.options = {"Disconnected", "Keyboard"};
++        item.options = {"Desconectado", "Teclado"};
 +        for (const auto& name : pads.devices) item.options.push_back(name);
 +        const int cur = pads.current[static_cast<size_t>(i)];
 +        item.value = std::clamp(cur + 2, 0, static_cast<int>(item.options.size()) - 1);
@@ -13513,7 +13513,7 @@ index 0000000000..831ea3094c
 +    };
 +    if (Recording().load()) {
 +        Rect(out, cw * 0.5f, ch * 0.4f, cw * 5.5f, ch * 1.3f, Rgba(0, 0, 0, 0.55f));
-+        Text(out, cw, ch * 0.5f, scale, "REC", Rgba(1.0f, 0.25f, 0.25f, 1));
++        Text(out, cw, ch * 0.5f, scale, "GRAB", Rgba(1.0f, 0.25f, 0.25f, 1));
 +    }
 +    if (!OpenFlag().load()) {
 +        if (live.fps_counter) {
@@ -13539,18 +13539,18 @@ index 0000000000..831ea3094c
 +    std::vector<Shown> list;
 +    std::string title, help;
 +    if (page == 1) {
-+        title = mods_changed ? "Mods - restart to apply your changes" : "Mods (changes apply after a restart)";
-+        help = "Up/Down select   Left/Right/A switch   B back";
++        title = mods_changed ? "Mods - reinicia para aplicar tus cambios" : "Mods (los cambios se aplican al reiniciar)";
++        help = "Arriba/Abajo elegir   Izq./Der./A cambiar   B volver";
 +        for (size_t i = 0; i < mods.size(); ++i) {
-+            list.push_back({mods[i].name, mods[i].on ? "< On >" : "< Off >", true, static_cast<int>(i) == mod_selected, "", 7});
++            list.push_back({mods[i].name, mods[i].on ? "< Si >" : "< No >", true, static_cast<int>(i) == mod_selected, "", 7});
 +        }
-+        if (mods.empty()) list.push_back({"No mods installed", "", false, false, "", 0});
++        if (mods.empty()) list.push_back({"No hay mods instalados", "", false, false, "", 0});
 +        const int count = static_cast<int>(mods.size()) + 2;
-+        list.push_back({"Restart now (applies changes)", "", true, mod_selected == count - 2, "", 0});
-+        list.push_back({"Back", "", true, mod_selected == count - 1, "", 0});
++        list.push_back({"Reiniciar ahora (aplica los cambios)", "", true, mod_selected == count - 2, "", 0});
++        list.push_back({"Volver", "", true, mod_selected == count - 1, "", 0});
 +    } else {
-+        title = "KartRecomp - in-game settings";
-+        help = "Up/Down select   Left/Right change   B / F10 close";
++        title = "KartRecomp - ajustes del juego";
++        help = "Arriba/Abajo elegir   Izq./Der. cambiar   B / F10 cerrar";
 +        for (int i = 0; i < kRowCount; ++i) {
 +            if (!Visible(i)) continue;
 +            const Item& it = items[i];
@@ -13571,7 +13571,7 @@ index 0000000000..831ea3094c
 +    for (const auto& row : list) kCols = std::max(kCols, static_cast<int>(row.label.size() + std::max(row.widest, row.value.size()) + 4));
 +    kCols = std::max(kCols, static_cast<int>(help.size() + 3));
 +    kCols = std::max(kCols, static_cast<int>(title.size() + 3));
-+    kCols = std::max(kCols, static_cast<int>(std::string{"Running: "}.size() + std::strlen(stats.upscaler) + 24));
++    kCols = std::max(kCols, static_cast<int>(std::string{"En uso: "}.size() + std::strlen(stats.upscaler) + 24));
 +    const float pitch = ch * 1.25f;
 +    // More rows than fit on the screen (a long mod list): show a window around the selected row.
 +    const int fit = std::max(5, static_cast<int>((static_cast<float>(screen_h) / ch - 6.0f) / 1.25f));
@@ -13600,7 +13600,7 @@ index 0000000000..831ea3094c
 +    y += ch * 0.4f;
 +    Text(out, px + cw, y, scale, help, grey);
 +    y += ch * 1.25f;
-+    const std::string status = std::string{"Running: "} + (stats.upscaler[0] ? stats.upscaler : "no upscaler") + ", " + fps_text();
++    const std::string status = std::string{"En uso: "} + (stats.upscaler[0] ? stats.upscaler : "sin reescalador") + ", " + fps_text();
 +    Text(out, px + cw, y, scale, status, grey);
 +    (void)shadow;
 +}
@@ -13645,7 +13645,7 @@ index 0000000000..831ea3094c
 +    }
 +    // Header.
 +    Rect(out, 0, 0, W, H * 0.208f, cream);
-+    const std::string title = mods_changed ? "Mods - restart to apply" : "Mods";
++    const std::string title = mods_changed ? "Mods - reinicia para aplicar" : "Mods";
 +    centred(W * 0.5f, H * 0.065f, big, title, ink);
 +    {
 +        const float x0 = W * 0.344f, x1 = W * 0.656f, y = H * 0.150f, h = H * 0.008f, seg = W * 0.0146f;
@@ -13668,10 +13668,10 @@ index 0000000000..831ea3094c
 +        bool selected, has_value;
 +    };
 +    std::vector<PageRow> rows;
-+    for (size_t i = 0; i < mods.size(); ++i) rows.push_back({mods[i].name, mods[i].on ? "On" : "Off", static_cast<int>(i) == mod_selected, true});
++    for (size_t i = 0; i < mods.size(); ++i) rows.push_back({mods[i].name, mods[i].on ? "Si" : "No", static_cast<int>(i) == mod_selected, true});
 +    const int count = static_cast<int>(mods.size()) + 2;
-+    rows.push_back({"Restart now", "", mod_selected == count - 2, false});
-+    rows.push_back({mods_changed ? "Back (restarts the game)" : "Back", "", mod_selected == count - 1, false});
++    rows.push_back({"Reiniciar ahora", "", mod_selected == count - 2, false});
++    rows.push_back({mods_changed ? "Volver (reinicia el juego)" : "Volver", "", mod_selected == count - 1, false});
 +    constexpr int kVisible = 6;
 +    int first = 0;
 +    if (static_cast<int>(rows.size()) > kVisible) {
@@ -13712,8 +13712,8 @@ index 0000000000..831ea3094c
 +
 +    // Help panel.
 +    rounded(px, H * 0.82f, pw, H * 0.20f, H * 0.035f, cream);
-+    const std::string help1 = mods.empty() ? "No mods installed. Add them in the launcher's Mods tab." : "Left/Right or A switches a mod on or off.";
-+    const std::string help2 = mods_changed ? "Leaving restarts the game to apply them." : "Mods load when the game starts.";
++    const std::string help1 = mods.empty() ? "No hay mods instalados. Anadelos en la pestana Mods del launcher." : "Izq./Der. o A activa o desactiva un mod.";
++    const std::string help2 = mods_changed ? "Al salir se reinicia el juego para aplicarlos." : "Los mods se cargan al iniciar el juego.";
 +    centred(W * 0.5f, H * 0.855f, small, help1, ink);
 +    centred(W * 0.5f, H * 0.905f, small, help2, ink);
 +    // Back tab.
@@ -19660,7 +19660,7 @@ index 0000000000..072dd9e1af
 +    }
 +
 +    void InitOverlay() {
-+        std::vector<std::string> names{"Off", "FSR 1 (spatial)", "Hook test (passthrough)"};
++        std::vector<std::string> names{"No", "FSR 1 (espacial)", "Prueba de gancho (passthrough)"};
 +        overlay_upscaler_ids = {"off", "fsr1", "passthrough"};
 +        for (const std::string& id : KrPlatform::PluginIds("upscaler")) {
 +            overlay_upscaler_ids.push_back(id);

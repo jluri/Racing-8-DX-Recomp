@@ -7,6 +7,7 @@
 #include <QFileInfo>
 
 #include "ini_file.h"
+#include "portable.h"
 
 GamePackage::GamePackage(QString root, QString home)
     : root_dir(std::move(root)), suyu_home(std::move(home)) {}
@@ -28,9 +29,11 @@ QString GamePackage::overlayFile() const {
 
 QString GamePackage::modsRoot() const { return root_dir; }
 
-QString GamePackage::pluginsParent() const { return installed ? QFileInfo(engine_path).absolutePath() : root_dir; }
+QString GamePackage::pluginsParent() const { return installed ? QFileInfo(engine_path).path() : root_dir; }
 
-QString GamePackage::workingDirectory() const { return installed ? QFileInfo(engine_path).absolutePath() : root_dir; }
+QString GamePackage::workingDirectory() const { return installed ? QFileInfo(engine_path).path() : root_dir; }
+
+QString GamePackage::forEngine(const QString& path) const { return installed ? Portable::RelativeTo(workingDirectory(), path) : path; }
 
 QString GamePackage::executable() const {
     if (installed) return engine_path;
@@ -77,35 +80,36 @@ QString GamePackage::coverageReport() const {
 
 QString GamePackage::problems() const {
     if (installed) {
-        if (!QFileInfo(engine_path).isExecutable()) return QStringLiteral("The game engine is missing (%1). Reinstall the launcher.").arg(engine_path);
-        if (!IsBuilt(layout, engine_version)) return QStringLiteral("The game has not been built yet: use the Setup page.");
+        if (!QFileInfo(engine_path).isExecutable()) return QStringLiteral("Falta el motor del juego (%1). Vuelve a instalar el launcher.").arg(engine_path);
+        if (!IsBuilt(layout, engine_version)) return QStringLiteral("El juego todavía no está construido: usa la pestaña Instalación.");
         return {};
     }
     QStringList missing;
     if (root_dir.isEmpty() || !QFileInfo(root_dir).isDir()) {
-        return QStringLiteral("No game folder selected.");
+        return QStringLiteral("No has elegido la carpeta del juego.");
     }
     if (!QFileInfo(executable()).isExecutable()) {
-        missing << QStringLiteral("Game executable (build it from your own dump first): ") + executable();
+        missing << QStringLiteral("Ejecutable del juego (constrúyelo antes con tu propio volcado): ") + executable();
     }
     if (!QFileInfo::exists(baseNsp())) {
-        missing << QStringLiteral("Base game: ") + baseNsp();
+        missing << QStringLiteral("Juego base: ") + baseNsp();
     }
     if (!QFileInfo::exists(updateNsp())) {
-        missing << QStringLiteral("Update 3.0.4: ") + updateNsp();
+        missing << QStringLiteral("Actualización 3.0.4: ") + updateNsp();
     }
     const QString keys = QDir(suyu_home).filePath(QStringLiteral("suyu/keys/prod.keys"));
     if (suyu_home.isEmpty() || !QFileInfo::exists(keys)) {
-        missing << QStringLiteral("Your keys (prod.keys): ") + keys;
+        missing << QStringLiteral("Tus claves (prod.keys): ") + keys;
     }
     return missing.join(QLatin1Char('\n'));
 }
 
 QStringList GamePackage::launchArguments(bool fullscreen) const {
     if (installed) {
-        QStringList args{QStringLiteral("--module-dir"), layout.moduleDir(), QStringLiteral("--content-base"), layout.base(),
-                         QStringLiteral("--content-update"), layout.update()};
-        for (const auto& dlc : dlcFiles()) args << QStringLiteral("--content-dlc") << dlc;
+        // Relative to the engine's working directory (its own folder), like everything else the engine is given.
+        QStringList args{QStringLiteral("--module-dir"), forEngine(layout.moduleDir()), QStringLiteral("--content-base"), forEngine(layout.base()),
+                         QStringLiteral("--content-update"), forEngine(layout.update())};
+        for (const auto& dlc : dlcFiles()) args << QStringLiteral("--content-dlc") << forEngine(dlc);
         if (fullscreen) args << QStringLiteral("-f");
         return args;
     }
@@ -128,10 +132,11 @@ QProcessEnvironment GamePackage::launchEnvironment() const {
         // The engine finds its XDG folders from the app name. launch.env (VAR=value lines, '#' comments) holds the launcher's runtime settings.
         env.insert(QStringLiteral("KARTRECOMP_APP_NAME"), QStringLiteral("kartrecomp"));
 #ifdef Q_OS_WIN
-        // Portable: the engine's <XDG>/kartrecomp folders are the ones beside the launcher, not %APPDATA%.
-        env.insert(QStringLiteral("XDG_DATA_HOME"), QFileInfo(layout.dataRoot).absolutePath());
-        env.insert(QStringLiteral("XDG_CACHE_HOME"), QFileInfo(layout.cacheRoot).absolutePath());
-        env.insert(QStringLiteral("XDG_CONFIG_HOME"), QFileInfo(config_root).absolutePath());
+        // Portable: the engine's <XDG>/kartrecomp folders are the ones beside the launcher, not %APPDATA%. Relative paths
+        // (from the engine's folder: ../userdata/data), so the engine also writes relative paths into sdl2-config.ini.
+        env.insert(QStringLiteral("XDG_DATA_HOME"), forEngine(QFileInfo(layout.dataRoot).path()));
+        env.insert(QStringLiteral("XDG_CACHE_HOME"), forEngine(QFileInfo(layout.cacheRoot).path()));
+        env.insert(QStringLiteral("XDG_CONFIG_HOME"), forEngine(QFileInfo(config_root).path()));
 #endif
         QFile f(QDir(config_root).filePath(QStringLiteral("launch.env")));
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -158,7 +163,33 @@ QProcessEnvironment GamePackage::launchEnvironment() const {
 }
 
 bool GamePackage::fixDataPaths() const {
-    if (installed) return true; // the engine derives every data path from the app name
+    if (installed) {
+#ifdef Q_OS_WIN
+        // The engine derives every data path from the XDG folders, but then writes them into sdl2-config.ini and reads them back
+        // from there on the next start. A config written by an older launcher holds absolute paths (C:/Users/...): turn them into
+        // the relative ones (from the engine's folder), so the config keeps working wherever the folder is moved.
+        IniFile ini;
+        if (!ini.load(configFile())) return true; // first launch: the engine writes a fresh config itself
+        const QString section = QStringLiteral("Data%20Storage");
+        const QList<QPair<QString, QString>> wanted{
+            {QStringLiteral("nand_directory"), forEngine(layout.dataRoot + QStringLiteral("/nand"))},
+            {QStringLiteral("sdmc_directory"), forEngine(layout.dataRoot + QStringLiteral("/sdmc"))},
+            {QStringLiteral("load_directory"), forEngine(layout.modsDir())},
+            {QStringLiteral("dump_directory"), forEngine(layout.dataRoot + QStringLiteral("/dump"))},
+            {QStringLiteral("tas_directory"), forEngine(layout.dataRoot + QStringLiteral("/tas"))},
+        };
+        bool changed = false;
+        for (const auto& [key, path] : wanted) {
+            const QString current = ini.value(section, key);
+            if (current.isEmpty() || current == path) continue;
+            ini.setValue(section, key, path);
+            changed = true;
+        }
+        return !changed || ini.save();
+#else
+        return true; // the engine derives every data path from the app name
+#endif
+    }
     IniFile ini;
     if (!ini.load(configFile())) {
         return false; // first launch: the executable writes a fresh config itself

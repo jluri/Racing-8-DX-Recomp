@@ -21,8 +21,8 @@ NspInfo ParseNspInfo(const QByteArray& output) {
     }
     if (!doc.isObject()) {
         const QString shown = QString::fromUtf8(output.trimmed()).left(200);
-        info.error = shown.isEmpty() ? QStringLiteral("the exporter gave no answer")
-                                     : QStringLiteral("the exporter gave no answer (it said: %1)").arg(shown);
+        info.error = shown.isEmpty() ? QStringLiteral("el exportador no ha respondido")
+                                     : QStringLiteral("el exportador no ha respondido (dijo: %1)").arg(shown);
         return info;
     }
     const QJsonObject o = doc.object();
@@ -41,18 +41,18 @@ NspInfo ReadNspInfo(const QString& exporter, const QString& nsp, const QString& 
     p.start(exporter, {"--info", nsp, "--keys", keys});
     if (!p.waitForStarted()) {
         NspInfo info;
-        info.error = QStringLiteral("cannot start the exporter (%1)").arg(exporter);
+        info.error = QStringLiteral("no se puede iniciar el exportador (%1)").arg(exporter);
         return info;
     }
     if (!p.waitForFinished(timeoutMs)) {
         p.kill();
         NspInfo info;
-        info.error = QStringLiteral("reading the file took too long");
+        info.error = QStringLiteral("leer el archivo ha tardado demasiado");
         return info;
     }
     if (p.exitStatus() != QProcess::NormalExit) {
         NspInfo info;
-        info.error = QStringLiteral("the exporter crashed while reading it: your keys are probably wrong for this file, or the file is damaged");
+        info.error = QStringLiteral("el exportador se ha cerrado al leerlo: seguramente tus claves no sirven para este archivo, o el archivo está dañado");
         return info;
     }
     return ParseNspInfo(p.readAllStandardOutput());

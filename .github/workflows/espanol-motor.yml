@@ -1,0 +1,73 @@
+# Engine (mk8d-engine.exe, plus the exporter kartrecomp-export.exe) with the F10 menu in Spanish. It keeps the published stamp 9586f9ea01-abi6, so a game already built
+# with v0.2.1 / v0.2.2 does not need a rebuild. Committed to the "binarios-motor" branch so it can be fetched with git.
+name: Motor en espanol
+on:
+  workflow_dispatch:
+  push:
+    branches: [espanol-rutas-relativas]
+    paths: ['patches/**', '.github/workflows/espanol-motor.yml']
+permissions:
+  contents: write
+concurrency:
+  group: espanol-motor
+  cancel-in-progress: true
+jobs:
+  engine:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Vulkan SDK (glslangValidator)
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 4; $i++) { choco install vulkan-sdk -y --no-progress; if (Test-Path C:\VulkanSDK) { break }; Start-Sleep -Seconds (20 * $i) }
+          $sdk = Get-ChildItem C:\VulkanSDK -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          "$($sdk.FullName)\Bin" >> $env:GITHUB_PATH
+      - name: Fetch the fork and apply our patches
+        shell: bash
+        run: packaging/windows/fetch-fork.sh fork
+      - name: Configure
+        shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
+        run: |
+          cmake -S fork -B build -GNinja -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_QT=OFF -DYUZU_TESTS=OFF -DENABLE_WEB_SERVICE=OFF \
+            -DSUYU_NO_JIT=ON -DKARTRECOMP_ENGINE=ON -DKARTRECOMP_ENGINE_VERSION=9586f9ea01-abi6
+      - name: Build
+        shell: bash
+        run: cmake --build build --target mk8d-engine kartrecomp-export -- -k 0
+      - name: Stage
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force stage\engine | Out-Null
+          Copy-Item build\bin\mk8d-engine.exe, build\bin\kartrecomp-export.exe stage\engine\
+          Get-ChildItem build\bin -Filter *.dll | Copy-Item -Destination stage\engine\
+          '9586f9ea01-abi6' | Set-Content -NoNewline stage\engine\ENGINE_VERSION
+          Get-ChildItem stage\engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: stage/engine
+          if-no-files-found: error
+
+  publish:
+    needs: [engine]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: out
+      - name: Commit to the binarios-motor branch
+        run: |
+          cd out
+          echo "source: ${{ github.sha }}" > ORIGEN.txt
+          git init -q -b binarios-motor
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Binarios de ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" binarios-motor

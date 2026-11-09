@@ -59,13 +59,13 @@ void Updater::check(bool quiet) {
         const auto json = QJsonDocument::fromJson(reply->readAll()).object();
         const QString tag = json.value(QStringLiteral("tag_name")).toString();
         if (reply->error() != QNetworkReply::NoError || tag.isEmpty()) {
-            if (!quiet) QMessageBox::information(parent_widget, tr("Updates"), tr("Could not check for updates: %1").arg(reply->errorString()));
+            if (!quiet) QMessageBox::information(parent_widget, tr("Actualizaciones"), tr("No se pudo buscar actualizaciones: %1").arg(reply->errorString()));
             return;
         }
         const auto latest = QVersionNumber::fromString(tag.startsWith(QLatin1Char('v')) ? tag.mid(1) : tag);
         const auto current = QVersionNumber::fromString(QCoreApplication::applicationVersion());
         if (latest <= current) {
-            if (!quiet) QMessageBox::information(parent_widget, tr("Updates"), tr("You have the latest version (%1).").arg(current.toString()));
+            if (!quiet) QMessageBox::information(parent_widget, tr("Actualizaciones"), tr("Tienes la última versión (%1).").arg(current.toString()));
             return;
         }
         QString asset;
@@ -83,18 +83,18 @@ void Updater::offer(const QString& tag, const QString& notes, const QString& pag
     const QString root = CheckoutRoot();
     const QString appimage = qEnvironmentVariable("APPIMAGE");
     QString how;
-    if (!root.isEmpty()) how = tr("Update pulls the new source and rebuilds the launcher.");
-    else if (!appimage.isEmpty() && !asset_url.isEmpty()) how = tr("Update downloads the new launcher and replaces this one.");
-    else how = tr("Update opens the release page.");
+    if (!root.isEmpty()) how = tr("Actualizar descarga el código nuevo y recompila el launcher.");
+    else if (!appimage.isEmpty() && !asset_url.isEmpty()) how = tr("Actualizar descarga el launcher nuevo y sustituye a este.");
+    else how = tr("Actualizar abre la página de la versión. Ojo: la versión oficial está en inglés y usa rutas absolutas.");
     QMessageBox box(parent_widget);
-    box.setWindowTitle(tr("Update available"));
-    box.setText(tr("Racing 8 DX Recomp %1 is available (you have %2).").arg(tag, QCoreApplication::applicationVersion()));
+    box.setWindowTitle(tr("Actualización disponible"));
+    box.setText(tr("Racing 8 DX Recomp %1 está disponible (tienes la %2).").arg(tag, QCoreApplication::applicationVersion()));
     box.setInformativeText(how + QLatin1Char('\n') +
-                           tr("Changes to the game itself take effect after you rebuild the game from your files."));
+                           tr("Los cambios en el propio juego se aplican cuando vuelves a construirlo con tus archivos."));
     box.setDetailedText(notes);
     box.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-    box.button(QMessageBox::Ok)->setText(tr("Update"));
-    box.button(QMessageBox::Cancel)->setText(tr("Later"));
+    box.button(QMessageBox::Ok)->setText(tr("Actualizar"));
+    box.button(QMessageBox::Cancel)->setText(tr("Más tarde"));
     if (box.exec() != QMessageBox::Ok) return;
     if (!root.isEmpty()) updateCheckout(root);
     else if (!appimage.isEmpty() && !asset_url.isEmpty()) updateAppImage(asset_url);
@@ -110,7 +110,7 @@ void Updater::updateCheckout(const QString& root) {
     connect(pull, &QProcess::finished, this, [this, pull, root](int code) {
         pull->deleteLater();
         if (code != 0) {
-            QMessageBox::warning(parent_widget, tr("Update"), tr("git pull failed (see the output). Local changes in %1?").arg(root));
+            QMessageBox::warning(parent_widget, tr("Actualizar"), tr("git pull ha fallado (mira la salida). ¿Hay cambios locales en %1?").arg(root));
             return;
         }
         auto* build = new QProcess(this);
@@ -120,42 +120,42 @@ void Updater::updateCheckout(const QString& root) {
         connect(build, &QProcess::finished, this, [this, build](int c) {
             build->deleteLater();
             if (c != 0) {
-                QMessageBox::warning(parent_widget, tr("Update"), tr("The launcher did not build (see the output)."));
+                QMessageBox::warning(parent_widget, tr("Actualizar"), tr("El launcher no se pudo compilar (mira la salida)."));
                 return;
             }
-            if (QMessageBox::question(parent_widget, tr("Update"), tr("Updated. Restart the launcher now?")) == QMessageBox::Yes) {
+            if (QMessageBox::question(parent_widget, tr("Actualizar"), tr("Actualizado. ¿Reiniciar el launcher ahora?")) == QMessageBox::Yes) {
                 QProcess::startDetached(QCoreApplication::applicationFilePath(), {});
                 QCoreApplication::quit();
             }
         });
-        emit log(tr("Rebuilding the launcher…"));
+        emit log(tr("Recompilando el launcher…"));
         build->start(QStringLiteral("cmake"), {QStringLiteral("--build"), QStringLiteral("build"), QStringLiteral("--target"), QStringLiteral("kartrecomp")});
     });
-    emit log(tr("Pulling the new version…"));
+    emit log(tr("Descargando la versión nueva…"));
     pull->start(QStringLiteral("git"), {QStringLiteral("pull"), QStringLiteral("--ff-only")});
 }
 
 void Updater::updateAppImage(const QString& url) {
     const QString target = qEnvironmentVariable("APPIMAGE");
     auto* reply = net->get(Request(QUrl(url)));
-    emit log(tr("Downloading the new launcher…"));
+    emit log(tr("Descargando el launcher nuevo…"));
     connect(reply, &QNetworkReply::finished, this, [this, reply, target] {
         reply->deleteLater();
         const QByteArray data = reply->readAll();
         QFile out(target + QStringLiteral(".new"));
         if (reply->error() != QNetworkReply::NoError || data.size() < 1024 * 1024 || !out.open(QIODevice::WriteOnly) ||
             out.write(data) != data.size()) {
-            QMessageBox::warning(parent_widget, tr("Update"), tr("The download failed: %1").arg(reply->errorString()));
+            QMessageBox::warning(parent_widget, tr("Actualizar"), tr("La descarga ha fallado: %1").arg(reply->errorString()));
             return;
         }
         out.close();
         out.setPermissions(out.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup | QFileDevice::ExeOther);
         QFile::remove(target);
         if (!QFile::rename(out.fileName(), target)) {
-            QMessageBox::warning(parent_widget, tr("Update"), tr("Could not replace %1.").arg(target));
+            QMessageBox::warning(parent_widget, tr("Actualizar"), tr("No se pudo sustituir %1.").arg(target));
             return;
         }
-        if (QMessageBox::question(parent_widget, tr("Update"), tr("Updated. Restart the launcher now?")) == QMessageBox::Yes) {
+        if (QMessageBox::question(parent_widget, tr("Actualizar"), tr("Actualizado. ¿Reiniciar el launcher ahora?")) == QMessageBox::Yes) {
             QProcess::startDetached(target, {});
             QCoreApplication::quit();
         }

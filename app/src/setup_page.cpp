@@ -20,6 +20,7 @@
 #include "build_runner.h"
 #include "keys_check.h"
 #include "nsp_info.h"
+#include "portable.h"
 #include "setup_pipeline.h"
 
 namespace {
@@ -29,25 +30,26 @@ QString StatusText(const QString& reason) { return reason.isEmpty() ? QStringLit
 SetupPage::SetupPage(QWidget* parent)
     : QWidget(parent), paths(BuilderPaths::Detect()), layout(DataLayout::Default()) {
     auto* top = new QVBoxLayout(this);
-    auto* intro = new QLabel(tr("Pick your own game files. Nothing leaves your PC: the game is built here from them, in a few minutes, "
-                                "and stays on this PC."));
+    auto* intro = new QLabel(tr("Elige tus propios archivos del juego. Nada sale de tu PC: el juego se construye aquí a partir de ellos, en unos minutos, "
+                                "y se queda en este PC."));
     intro->setWordWrap(true);
     top->addWidget(intro);
     auto* grid = new QGridLayout;
     top->addLayout(grid);
-    base = addRow(grid, 0, tr("Base game"), tr("Mario Kart 8 Deluxe (.nsp)"), [this] { pick(base, false, tr("Select the base game"), tr("NSP files (*.nsp)")); });
-    update = addRow(grid, 1, tr("Update"), tr("The 3.0.4 or 4.0.1 update (.nsp)"), [this] { pick(update, false, tr("Select the 3.0.4 or 4.0.1 update"), tr("NSP files (*.nsp)")); });
-    dlcRow = addRow(grid, 2, tr("DLC (optional)"), tr("Booster Course Pass and other add-ons (.nsp)"), [this] { pickDlc(); });
-    keys = addRow(grid, 3, tr("Keys"), tr("prod.keys from your own console"), [this] { pick(keys, false, tr("Select prod.keys"), tr("Key files (*.keys)")); });
-    firmware = addRow(grid, 4, tr("Firmware"), tr("Folder of firmware files, or a .zip"), [this] {
-        const QString dir = QFileDialog::getExistingDirectory(this, tr("Select the firmware folder (cancel to pick a zip instead)"));
+    base = addRow(grid, 0, tr("Juego base"), tr("Mario Kart 8 Deluxe (.nsp)"), [this] { pick(base, false, tr("Elige el juego base"), tr("Archivos NSP (*.nsp)")); });
+    update = addRow(grid, 1, tr("Actualización"), tr("La actualización 3.0.4 o 4.0.1 (.nsp)"), [this] { pick(update, false, tr("Elige la actualización 3.0.4 o 4.0.1"), tr("Archivos NSP (*.nsp)")); });
+    dlcRow = addRow(grid, 2, tr("DLC (opcional)"), tr("Pase de pistas extra y otros contenidos (.nsp)"), [this] { pickDlc(); });
+    keys = addRow(grid, 3, tr("Claves"), tr("prod.keys de tu propia consola"), [this] { pick(keys, false, tr("Elige prod.keys"), tr("Archivos de claves (*.keys)")); });
+    firmware = addRow(grid, 4, tr("Firmware"), tr("Carpeta con los archivos del firmware, o un .zip"), [this] {
+        const QString dir = QFileDialog::getExistingDirectory(this, tr("Elige la carpeta del firmware (cancela para elegir un zip)"));
+        Portable::EnterAppDir();
         if (!dir.isEmpty()) { firmware.edit->setText(dir); revalidate(); return; }
-        pick(firmware, false, tr("Select the firmware zip"), tr("Zip files (*.zip)"));
+        pick(firmware, false, tr("Elige el zip del firmware"), tr("Archivos zip (*.zip)"));
     });
     auto* buttons = new QHBoxLayout;
-    buildButton = new QPushButton(tr("Build game"));
-    cancelButton = new QPushButton(tr("Cancel"));
-    playButton = new QPushButton(tr("Play"));
+    buildButton = new QPushButton(tr("Construir juego"));
+    cancelButton = new QPushButton(tr("Cancelar"));
+    playButton = new QPushButton(tr("Jugar"));
     playButton->setMinimumHeight(40);
     buttons->addWidget(buildButton);
     buttons->addWidget(cancelButton);
@@ -97,7 +99,7 @@ SetupPage::Row SetupPage::addRow(QGridLayout* grid, int r, const QString& title,
     row.edit = new QLineEdit;
     row.edit->setPlaceholderText(hint);
     row.edit->setReadOnly(true);
-    auto* button = new QPushButton(tr("Browse…"));
+    auto* button = new QPushButton(tr("Examinar…"));
     connect(button, &QPushButton::clicked, this, [browse] { browse(); });
     grid->addWidget(row.edit, r * 2, 1);
     grid->addWidget(button, r * 2, 2);
@@ -111,13 +113,15 @@ SetupPage::Row SetupPage::addRow(QGridLayout* grid, int r, const QString& title,
 void SetupPage::pick(Row& row, bool folder, const QString& title, const QString& filter) {
     const QString start = row.edit->text().isEmpty() ? QDir::homePath() : QFileInfo(row.edit->text()).absolutePath();
     const QString path = folder ? QFileDialog::getExistingDirectory(this, title, start) : QFileDialog::getOpenFileName(this, title, start, filter);
+    Portable::EnterAppDir();
     if (path.isEmpty()) return;
     row.edit->setText(path);
     revalidate();
 }
 
 void SetupPage::pickDlc() {
-    const QStringList files = QFileDialog::getOpenFileNames(this, tr("Select DLC (.nsp)"), QDir::homePath(), tr("NSP files (*.nsp)"));
+    const QStringList files = QFileDialog::getOpenFileNames(this, tr("Elige los DLC (.nsp)"), QDir::homePath(), tr("Archivos NSP (*.nsp)"));
+    Portable::EnterAppDir();
     if (files.isEmpty()) return;
     dlc = files;
     dlcRow.edit->setText(dlc.join("; "));
@@ -150,8 +154,8 @@ void SetupPage::revalidate() {
     const bool keysOk = !in.keys.isEmpty() && kp == KeyProblem::None;
     const auto read = [&](const QString& p) { return ReadNspInfo(paths.exporter, p, in.keys); };
     const auto nspReason = [&](const QString& path, bool isBase) -> QString {
-        if (!exporterOk) return tr("The exporter is missing: unzip the whole download and run kartrecomp.exe from inside that folder (tools\\kartrecomp-export.exe must be beside it).");
-        if (!keysOk) return tr("Pick your keys first.");
+        if (!exporterOk) return tr("Falta el exportador: descomprime la descarga completa y abre kartrecomp.exe desde esa carpeta (tools\\kartrecomp-export.exe tiene que estar a su lado).");
+        if (!keysOk) return tr("Elige primero tus claves.");
         const NspInfo info = read(path);
         return isBase ? ValidateBase(info) : ValidateUpdate(info);
     };
@@ -170,7 +174,7 @@ void SetupPage::revalidate() {
 void SetupPage::refreshButtons() {
     const bool built = IsBuilt(layout, paths.engineVersion);
     buildButton->setEnabled(inputsValid && !building && !gameRunning);
-    buildButton->setText(QFileInfo::exists(layout.workDir()) ? tr("Rebuild game") : tr("Build game"));
+    buildButton->setText(QFileInfo::exists(layout.workDir()) ? tr("Reconstruir juego") : tr("Construir juego"));
     cancelButton->setEnabled(building);
     playButton->setEnabled(built && !building && !gameRunning);
     if (!building) bar->setValue(built ? bar->maximum() : 0);
@@ -178,7 +182,7 @@ void SetupPage::refreshButtons() {
 
 void SetupPage::build() {
     QString missing;
-    if (!paths.complete(&missing)) { QMessageBox::warning(this, tr("Build"), missing); return; }
+    if (!paths.complete(&missing)) { QMessageBox::warning(this, tr("Construir"), missing); return; }
     // The NSPs are moved, not copied (13 GB): say so before touching the user's files.
     QStringList toMove;
     auto outside = [](const QString& from, const QString& to) {
@@ -190,9 +194,9 @@ void SetupPage::build() {
         if (outside(d, layout.dlcDir() + "/" + QFileInfo(d).fileName())) toMove << d;
     if (!toMove.isEmpty()) {
         const auto answer = QMessageBox::warning(
-            this, tr("Move your game files?"),
-            tr("To build the game, these files will be MOVED out of their current folder into the launcher's data folder (%1). "
-               "They will no longer be where they are now. Keep your own backup if you want one.\n\n%2\n\nContinue?")
+            this, tr("¿Mover tus archivos del juego?"),
+            tr("Para construir el juego, estos archivos se MOVERÁN de su carpeta actual a la carpeta de datos del launcher (%1). "
+               "Ya no estarán donde están ahora. Haz tu propia copia de seguridad si la quieres.\n\n%2\n\n¿Continuar?")
                 .arg(QFileInfo(layout.base()).absolutePath(), toMove.join('\n')),
             QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
         if (answer != QMessageBox::Yes) return;
@@ -219,9 +223,9 @@ void SetupPage::finishBuild(bool ok, const QString& text) {
     adoptInstalled();
     saveInputs();
     if (ok) {
-        message->setText(tr("The game is built. Press Play."));
+        message->setText(tr("El juego está construido. Pulsa Jugar."));
     } else {
-        message->setText(tr("Build failed: %1").arg(text));
+        message->setText(tr("La construcción ha fallado: %1").arg(text));
     }
     refreshButtons();
     emit builtChanged(ok);
@@ -229,14 +233,15 @@ void SetupPage::finishBuild(bool ok, const QString& text) {
 
 void SetupPage::cancel() {
     cancelFlag = true;
-    message->setText(tr("Cancelling…"));
+    message->setText(tr("Cancelando…"));
 }
 
 void SetupPage::saveInputs() const {
     QSettings s;
-    s.setValue("setup/base", base.edit->text());
-    s.setValue("setup/update", update.edit->text());
-    s.setValue("setup/keys", keys.edit->text());
-    s.setValue("setup/firmware", firmware.edit->text());
-    s.setValue("setup/dlc", dlc);
+    // Saved relative to the launcher's folder (Windows), so a moved folder still finds them.
+    s.setValue("setup/base", Portable::Store(base.edit->text()));
+    s.setValue("setup/update", Portable::Store(update.edit->text()));
+    s.setValue("setup/keys", Portable::Store(keys.edit->text()));
+    s.setValue("setup/firmware", Portable::Store(firmware.edit->text()));
+    s.setValue("setup/dlc", Portable::Store(dlc));
 }

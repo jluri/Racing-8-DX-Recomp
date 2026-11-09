@@ -53,7 +53,7 @@ QStringList ReadDisabled(const QString& root) {
 bool WriteDisabled(const QString& root, const QStringList& names, QString* error) {
     IniFile ini;
     if (!ini.load(ConfigPath(root))) {
-        if (error) *error = QStringLiteral("Start the game once so it creates its config, then try again.");
+        if (error) *error = QStringLiteral("Abre el juego una vez para que cree su configuración y vuelve a intentarlo.");
         return false;
     }
     int entry = FindEntry(ini);
@@ -70,7 +70,7 @@ bool WriteDisabled(const QString& root, const QStringList& names, QString* error
         ini.setRawValue(kDisabledSection, QStringLiteral("%1\\disabled\\%2\\d").arg(entry).arg(j + 1), names[j]);
     }
     if (!ini.save()) {
-        if (error) *error = QStringLiteral("Could not write the game's config.");
+        if (error) *error = QStringLiteral("No se pudo escribir la configuración del juego.");
         return false;
     }
     return true;
@@ -113,7 +113,7 @@ PackInfo AnalyzeCtgpPack(const QString& zip_path) {
         }
     }
     if (info.romfs_files == 0 && info.exefs_files == 0) {
-        info.error = QStringLiteral("This zip has no content for Mario Kart 8 Deluxe (expected atmosphere/contents/%1/...).").arg(info.title_id);
+        info.error = QStringLiteral("Este zip no tiene contenido para Mario Kart 8 Deluxe (se esperaba atmosphere/contents/%1/...).").arg(info.title_id);
         return info;
     }
     if (npdm && npdm->size >= 16 && npdm->size < 65536) {
@@ -149,16 +149,16 @@ bool SetCtgpEnabled(const QString& root, bool enabled, QString* error) {
 bool RemoveCtgp(const QString& root, QString* error) {
     const bool ok = QDir(EnabledDir(root)).removeRecursively();
     SetDisabled(root, kCtgpName, false, nullptr);
-    if (!ok && error) *error = QStringLiteral("Could not remove every file");
+    if (!ok && error) *error = QStringLiteral("No se pudieron borrar todos los archivos");
     return ok;
 }
 
 QString CodeRecompBlocker(const PackInfo& info) {
     Q_UNUSED(info)
-    return QStringLiteral("CTGP DX's code is a 32-bit ARM plugin made for game version 3.0.3, and this build is the 64-bit 3.0.4 game, so the code cannot "
-                          "run here. The pack's tracks are data, so they are converted instead: each custom track takes the place of one of the game's "
-                          "race courses, with its thumbnail, music and name, and the cups are renamed. Not available: the extra cups' own menus, the "
-                          "speedometer, online play and the pack's settings screen.");
+    return QStringLiteral("El código de CTGP DX es un complemento ARM de 32 bits hecho para la versión 3.0.3 del juego, y esta versión es el juego 3.0.4 "
+                          "de 64 bits, así que ese código no puede ejecutarse aquí. Los circuitos del pack son datos, así que se convierten: cada circuito "
+                          "se añade con su miniatura, música y nombre en copas extra. No disponible: los menús propios de las copas extra, el "
+                          "velocímetro, el juego online y la pantalla de ajustes del pack.");
 }
 
 // ------------------------------------------------------------------------------------------------------------ ordinary mods
@@ -232,12 +232,12 @@ bool ImportModFolder(const QString& source, const QString& root, QString* error,
         if (!rel.isEmpty()) jobs.append({file, rel});
     }
     if (jobs.isEmpty()) {
-        if (error) *error = QStringLiteral("No romfs or exefs folder found in %1.").arg(source);
+        if (error) *error = QStringLiteral("No hay carpeta romfs ni exefs en %1.").arg(source);
         return false;
     }
     const bool has_data = std::any_of(jobs.begin(), jobs.end(), [](const Job& j) { return j.rel.startsWith(QLatin1String("romfs/")); });
     if (!has_data) {
-        if (error) *error = QStringLiteral("Skipped %1: it only holds code patches, which this recompiled build cannot apply.").arg(QFileInfo(source).fileName());
+        if (error) *error = QStringLiteral("Omitido %1: solo tiene parches de código, que esta versión recompilada no puede aplicar.").arg(QFileInfo(source).fileName());
         return false;
     }
     QDir().mkpath(TitleModsDir(root));
@@ -254,7 +254,7 @@ bool ImportModFolder(const QString& source, const QString& root, QString* error,
         QDir().mkpath(QFileInfo(to).absolutePath());
         if (!QFile::copy(job.from, to)) {
             QDir(target).removeRecursively();
-            if (error) *error = QStringLiteral("Could not copy %1").arg(job.from);
+            if (error) *error = QStringLiteral("No se pudo copiar %1").arg(job.from);
             return false;
         }
         ++done;
@@ -273,11 +273,11 @@ bool ImportModZip(const QString& zip_path, const QString& root, QString* error, 
         if (!rel.isEmpty()) jobs.append({&e, rel});
     }
     if (jobs.isEmpty()) {
-        if (error) *error = QStringLiteral("The zip has no romfs or exefs folder.");
+        if (error) *error = QStringLiteral("El zip no tiene carpeta romfs ni exefs.");
         return false;
     }
     if (std::none_of(jobs.begin(), jobs.end(), [](const Job& j) { return j.rel.startsWith(QLatin1String("romfs/")); })) {
-        if (error) *error = QStringLiteral("Skipped: the zip only holds code patches, which this recompiled build cannot apply.");
+        if (error) *error = QStringLiteral("Omitido: el zip solo tiene parches de código, que esta versión recompilada no puede aplicar.");
         return false;
     }
     QDir().mkpath(TitleModsDir(root));
@@ -377,7 +377,7 @@ bool SetModEnabled(const QString& root, const QString& name, bool enabled, QStri
 bool RemoveMod(const QString& root, const QString& name, QString* error) {
     const bool ok = QDir(QDir(TitleModsDir(root)).filePath(name)).removeRecursively();
     SetDisabled(root, name, false, nullptr);
-    if (!ok && error) *error = QStringLiteral("Could not remove every file");
+    if (!ok && error) *error = QStringLiteral("No se pudieron borrar todos los archivos");
     return ok;
 }
 
