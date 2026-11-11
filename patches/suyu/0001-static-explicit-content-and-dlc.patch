@@ -14885,7 +14885,7 @@ new file mode 100644
 index 0000000000..072dd9e1af
 --- /dev/null
 +++ b/src/suyu_cmd/native_gpu/vk_shadow_backend.cpp
-@@ -0,0 +1,8012 @@
+@@ -0,0 +1,8271 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +#include "suyu_cmd/native_gpu/vk_shadow_backend.h"
 +#include "suyu_cmd/native_gpu/native_surface.h"
@@ -15997,6 +15997,7 @@ index 0000000000..072dd9e1af
 +            return false;
 +        }
 +        LoadPipelineCache();
++        LoadPipelineRecipes();
 +        LOG_INFO(Frontend, "nvn-host vulkan: shadow window on {}", props.deviceName);
 +        return true;
 +    }
@@ -17098,6 +17099,7 @@ index 0000000000..072dd9e1af
 +                if (SpeculationHolds(it->second, st.textures)) {
 +                    it->second.speculative = false;
 +                } else {
++                    RetirePipelinesOf(&it->second);
 +                    DestroyProgram(it->second);
 +                    it->second = BuildProgram(stages, st.textures, uint_mask);
 +                    ++speculation_misses;
@@ -17204,6 +17206,7 @@ index 0000000000..072dd9e1af
 +                // pipelines (keys start with the entry's address). Kept alive
 +                // until shutdown since an in-flight frame may still use them.
 +                const ProgramEntry* old = &it->second;
++                std::erase(warm_pending, old);
 +                for (auto p = pipelines.begin(); p != pipelines.end();) {
 +                    if (p->first.size() >= sizeof(old) && std::memcmp(p->first.data(), &old, sizeof(old)) == 0) {
 +                        retired_pipelines.push_back(p->second);
@@ -17216,7 +17219,7 @@ index 0000000000..072dd9e1af
 +                programs.erase(it);
 +                ++programs_replaced;
 +            }
-+            programs.emplace(std::move(datas), std::move(e));
++            warm_pending.push_back(&programs.emplace(std::move(datas), std::move(e)).first->second);
 +            ++speculative_built;
 +        }
 +    }
@@ -17251,6 +17254,7 @@ index 0000000000..072dd9e1af
 +                    if (SpeculationHolds(it->second, textures)) {
 +                        it->second.speculative = false;
 +                    } else {
++                        RetirePipelinesOf(&it->second);
 +                        DestroyProgram(it->second);
 +                        programs.erase(it);
 +                        ++speculation_misses;
@@ -17287,7 +17291,7 @@ index 0000000000..072dd9e1af
 +        for (auto& t : builders) t.join();
 +        for (size_t i = 0; i < jobs.size(); ++i) {
 +            if (!results[i].ok) ++program_failures;
-+            programs.emplace(std::move(jobs[i].first), std::move(results[i]));
++            warm_pending.push_back(&programs.emplace(std::move(jobs[i].first), std::move(results[i])).first->second);
 +        }
 +    }
 +
@@ -17373,6 +17377,7 @@ index 0000000000..072dd9e1af
 +        for (auto& t : workers) t.join();
 +        for (size_t i = 0; i < jobs.size(); ++i) {
 +            if (!results[i]) ++pipeline_failures;
++            if (results[i]) RecordPipelineRecipe(*jobs[i].prog, jobs[i].st, jobs[i].topology, jobs[i].layout.attrs, jobs[i].layout.binds);
 +            pipelines.emplace(std::move(jobs[i].key), results[i]);
 +        }
 +    }
@@ -17820,6 +17825,7 @@ index 0000000000..072dd9e1af
 +        const VkPipeline pipeline = CreatePipeline(prog, st, topology, attrs, binds);
 +        if (!pipeline) ++pipeline_failures;
 +        pipelines.emplace(key, pipeline);
++        if (pipeline) RecordPipelineRecipe(prog, st, topology, attrs, binds);
 +        return pipeline;
 +    }
 +
@@ -21763,6 +21769,7 @@ index 0000000000..072dd9e1af
 +            Profile::Scope ps{prof, Profile::Prebuild};
 +            MergeSpeculative();
 +            PrebuildPrograms(frame);
++            WarmPendingPipelines();
 +            Profile::Scope ps_pipe{prof, Profile::PrebuildPipelines};
 +            // The walk visits every draw of the frame, which costs milliseconds on the render thread, and exists to build new pipelines in
 +            // parallel. Once a scene has settled nothing is new: walk only after new programs or a pipeline that Draw had to build
@@ -22332,6 +22339,7 @@ index 0000000000..072dd9e1af
 +        if (frames % 1800 == 900 && pipelines.size() != pipelines_saved) {
 +            pipelines_saved = pipelines.size();
 +            SavePipelineCacheInBackground();
++            SavePipelineRecipes();
 +        }
 +        if (++frames % 300 == 0) {
 +            const auto ms = [this](Profile::Slot sl) { return prof.ns[sl] / 300.0 / 1e6; };
@@ -22382,6 +22390,246 @@ index 0000000000..072dd9e1af
 +
 +    /// Driver pipeline cache, persisted in the cache directory so compiled
 +    /// pipelines survive between runs (the driver validates the blob's header).
++    // ---- Pipeline warm-up ("shader cache compiler") ----
++    // Every pipeline the game makes is noted as a recipe (its program's code hash plus the state that shapes it) in
++    // vk_pipeline_recipes.bin beside vk_pipelines.bin. On later runs, as soon as a program with known recipes is built
++    // (programs are translated during loading screens), its pipelines are created right then, on several threads, instead
++    // of at their first draw in the middle of a race. Unlike the driver's cache the recipes survive driver updates, and a
++    // recipes file from a player who has seen everything warms up everything. KARTRECOMP_NO_PIPELINE_WARMUP turns it off.
++    static std::filesystem::path PipelineRecipesPath() {
++        return Common::FS::GetSuyuPath(Common::FS::SuyuPath::CacheDir) / "kartrecomp" / "vk_pipeline_recipes.bin";
++    }
++
++    static constexpr u64 kRecipeMagic = 0x3130504352524B4BULL; // "KKRRCP01"
++
++    template <typename T>
++    static void RecipePut(std::string& out, const T& v) {
++        out.append(reinterpret_cast<const char*>(&v), sizeof(T));
++    }
++
++    template <typename T>
++    static bool RecipeGet(std::string_view& in, T& v) {
++        if (in.size() < sizeof(T)) return false;
++        std::memcpy(&v, in.data(), sizeof(T));
++        in.remove_prefix(sizeof(T));
++        return true;
++    }
++
++    static std::string SerializeRecipe(const ProgramEntry& prog, const DrawState& st, VkPrimitiveTopology topology,
++                                       const std::vector<VkVertexInputAttributeDescription>& attrs,
++                                       const std::vector<VkVertexInputBindingDescription>& binds) {
++        std::string out;
++        RecipePut(out, prog.code_hash);
++        RecipePut(out, static_cast<u32>(topology));
++        RecipePut(out, static_cast<u32>(attrs.size()));
++        for (const auto& a : attrs) RecipePut(out, a);
++        RecipePut(out, static_cast<u32>(binds.size()));
++        for (const auto& b : binds) RecipePut(out, b);
++        RecipePut(out, st.depth_stencil);
++        RecipePut(out, st.color);
++        RecipePut(out, st.channel_mask);
++        for (const u64 b : st.blend) RecipePut(out, b);
++        RecipePut(out, st.polygon);
++        RecipePut(out, st.polygon_offset);
++        RecipePut(out, static_cast<u8>(st.depth_clamp ? 1 : 0));
++        RecipePut(out, static_cast<u32>(st.colors.size()));
++        for (size_t i = 0; i < st.colors.size(); ++i) {
++            const VkFormat f = st.colors[i] && i < st.color_formats.size() ? st.color_formats[i] : VK_FORMAT_UNDEFINED;
++            RecipePut(out, static_cast<u32>(f));
++        }
++        RecipePut(out, static_cast<u32>(st.depth ? st.depth->info.format : VK_FORMAT_UNDEFINED));
++        return out;
++    }
++
++    struct PipelineRecipe {
++        DrawState st;
++        VkPrimitiveTopology topology{};
++        std::vector<VkVertexInputAttributeDescription> attrs;
++        std::vector<VkVertexInputBindingDescription> binds;
++    };
++
++    /// Rebuilds the draw state a recipe was taken from. Render targets are stand-in images: CreatePipeline and
++    /// PipelineKey only look at whether a target is bound and at its format.
++    bool ParseRecipe(std::string_view in, u64& code_hash, PipelineRecipe& r) {
++        u32 topology = 0, count = 0, format = 0;
++        u8 clamp = 0;
++        if (!RecipeGet(in, code_hash) || !RecipeGet(in, topology) || !RecipeGet(in, count) || count > 64) return false;
++        r.topology = static_cast<VkPrimitiveTopology>(topology);
++        r.attrs.resize(count);
++        for (auto& a : r.attrs) if (!RecipeGet(in, a)) return false;
++        if (!RecipeGet(in, count) || count > 64) return false;
++        r.binds.resize(count);
++        for (auto& b : r.binds) if (!RecipeGet(in, b)) return false;
++        DrawState& st = r.st;
++        if (!RecipeGet(in, st.depth_stencil) || !RecipeGet(in, st.color) || !RecipeGet(in, st.channel_mask)) return false;
++        for (u64& b : st.blend) if (!RecipeGet(in, b)) return false;
++        if (!RecipeGet(in, st.polygon) || !RecipeGet(in, st.polygon_offset) || !RecipeGet(in, clamp)) return false;
++        st.depth_clamp = clamp != 0;
++        if (!RecipeGet(in, count) || count > 16) return false;
++        for (u32 i = 0; i < count; ++i) {
++            if (!RecipeGet(in, format)) return false;
++            const VkFormat f = static_cast<VkFormat>(format);
++            st.colors.push_back(f == VK_FORMAT_UNDEFINED ? nullptr : &warm_color_image);
++            st.color_formats.push_back(f);
++        }
++        if (!RecipeGet(in, format) || !in.empty()) return false;
++        if (format != VK_FORMAT_UNDEFINED) {
++            Image& depth = warm_depth_images[static_cast<VkFormat>(format)];
++            depth.info.format = static_cast<VkFormat>(format);
++            st.depth = &depth;
++        }
++        return true;
++    }
++
++    void LoadPipelineRecipes() {
++        static const bool off = std::getenv("KARTRECOMP_NO_PIPELINE_WARMUP") != nullptr;
++        warm_enabled = !off;
++        std::string blob;
++        if (std::ifstream in{PipelineRecipesPath(), std::ios::binary}) {
++            blob.assign(std::istreambuf_iterator<char>(in), {});
++        }
++        std::string_view view{blob};
++        u64 magic = 0;
++        if (!RecipeGet(view, magic) || magic != kRecipeMagic) {
++            recipes_rewrite = true; // missing, or written by something else: start the file over
++            LOG_INFO(Frontend, "nvn-host vulkan: pipeline recipes: none yet ({})", Common::FS::PathToUTF8String(PipelineRecipesPath()));
++            return;
++        }
++        size_t loaded = 0, bad = 0;
++        while (!view.empty()) {
++            u32 size = 0;
++            if (!RecipeGet(view, size) || size > view.size()) {
++                ++bad; // a run that ended mid-write: the rest of the file is cut off
++                break;
++            }
++            std::string bytes{view.substr(0, size)};
++            view.remove_prefix(size);
++            u64 hash = 0;
++            PipelineRecipe r;
++            if (!ParseRecipe(bytes, hash, r)) {
++                ++bad;
++                continue;
++            }
++            if (!recipes_known.insert(bytes).second) continue;
++            warm_recipes[hash].push_back(std::move(r));
++            ++loaded;
++        }
++        if (bad) recipes_rewrite = true;
++        LOG_INFO(Frontend, "nvn-host vulkan: pipeline recipes: {} loaded for {} programs ({} unreadable){}", loaded,
++                 warm_recipes.size(), bad, warm_enabled ? "" : ", warm-up off");
++    }
++
++    /// A pipeline the game just needed: note it for the next runs (render thread).
++    void RecordPipelineRecipe(const ProgramEntry& prog, const DrawState& st, VkPrimitiveTopology topology,
++                              const std::vector<VkVertexInputAttributeDescription>& attrs,
++                              const std::vector<VkVertexInputBindingDescription>& binds) {
++        // Integer-output variants are keyed apart (ProgramKey) and only built at their draw: not worth a recipe.
++        if (prog.code_hash == 0 || prog.speculative || UintOutputMask(st) != 0) return;
++        std::string bytes = SerializeRecipe(prog, st, topology, attrs, binds);
++        if (recipes_known.insert(bytes).second) recipes_new.push_back(std::move(bytes));
++    }
++
++    void SavePipelineRecipes() {
++        if (recipes_new.empty() && !recipes_rewrite) return;
++        std::error_code ec;
++        std::filesystem::create_directories(PipelineRecipesPath().parent_path(), ec);
++        if (recipes_rewrite) {
++            // Every known recipe again, through a temporary file (a damaged or foreign file is replaced whole).
++            auto temp = PipelineRecipesPath();
++            temp += ".tmp";
++            bool written = false;
++            {
++                std::ofstream out{temp, std::ios::binary | std::ios::trunc};
++                std::string head;
++                RecipePut(head, kRecipeMagic);
++                out.write(head.data(), static_cast<std::streamsize>(head.size()));
++                for (const std::string& r : recipes_known) {
++                    const u32 size = static_cast<u32>(r.size());
++                    out.write(reinterpret_cast<const char*>(&size), sizeof(size));
++                    out.write(r.data(), static_cast<std::streamsize>(r.size()));
++                }
++                written = out.good();
++            }
++            if (written) std::filesystem::rename(temp, PipelineRecipesPath(), ec);
++            if (!written || ec) {
++                std::filesystem::remove(temp, ec);
++                return;
++            }
++            recipes_rewrite = false;
++            recipes_new.clear();
++            return;
++        }
++        std::ofstream out{PipelineRecipesPath(), std::ios::binary | std::ios::app};
++        for (const std::string& r : recipes_new) {
++            const u32 size = static_cast<u32>(r.size());
++            out.write(reinterpret_cast<const char*>(&size), sizeof(size));
++            out.write(r.data(), static_cast<std::streamsize>(r.size()));
++        }
++        if (out.good()) recipes_new.clear();
++    }
++
++    /// A program is going away (replaced, or a speculative translation that guessed wrong): its pipelines must not be
++    /// found again under its address. Kept alive until shutdown, like the other retired pipelines.
++    void RetirePipelinesOf(const ProgramEntry* prog) {
++        std::erase(warm_pending, prog);
++        for (auto p = pipelines.begin(); p != pipelines.end();) {
++            if (p->first.size() >= sizeof(prog) && std::memcmp(p->first.data(), &prog, sizeof(prog)) == 0) {
++                retired_pipelines.push_back(p->second);
++                p = pipelines.erase(p);
++            } else {
++                ++p;
++            }
++        }
++    }
++
++    /// Creates the recorded pipelines of the programs built since the last frame (render thread, before recording).
++    void WarmPendingPipelines() {
++        if (warm_pending.empty()) return;
++        std::vector<const ProgramEntry*> progs;
++        progs.swap(warm_pending);
++        if (!warm_enabled || warm_recipes.empty()) return;
++        struct Job {
++            std::string key;
++            const ProgramEntry* prog;
++            const PipelineRecipe* recipe;
++        };
++        std::vector<Job> jobs;
++        for (const ProgramEntry* prog : progs) {
++            if (!prog->ok || prog->unsupported_resources || prog->code_hash == 0) continue;
++            const auto it = warm_recipes.find(prog->code_hash);
++            if (it == warm_recipes.end()) continue;
++            for (const PipelineRecipe& r : it->second) {
++                std::string key = PipelineKey(*prog, r.st, r.topology, r.attrs, r.binds);
++                if (pipelines.contains(key)) continue;
++                jobs.push_back({std::move(key), prog, &r});
++            }
++        }
++        if (jobs.empty()) return;
++        const auto start = std::chrono::steady_clock::now();
++        std::vector<VkPipeline> results(jobs.size());
++        std::atomic<size_t> next{0};
++        const auto work = [&] {
++            for (size_t i; (i = next.fetch_add(1)) < jobs.size();) {
++                const Job& j = jobs[i];
++                results[i] = CreatePipeline(*j.prog, j.recipe->st, j.recipe->topology, j.recipe->attrs, j.recipe->binds);
++            }
++        };
++        const u32 count = std::clamp<u32>(std::thread::hardware_concurrency() / 2, 1, 8);
++        std::vector<std::thread> workers;
++        for (u32 w = 1; w < std::min<size_t>(count, jobs.size()); ++w) workers.emplace_back(work);
++        work();
++        for (auto& t : workers) t.join();
++        size_t built = 0;
++        for (size_t i = 0; i < jobs.size(); ++i) {
++            if (!results[i]) continue; // left for the draw itself, which counts a failure there
++            pipelines.emplace(std::move(jobs[i].key), results[i]);
++            ++built;
++        }
++        warm_built += built;
++        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++        LOG_INFO(Frontend, "nvn-host vulkan: warm-up built {} pipelines for {} programs in {:.1f} ms ({} in this run)", built,
++                 progs.size(), ms, warm_built);
++    }
 +    static std::filesystem::path PipelineCachePath() {
 +        return Common::FS::GetSuyuPath(Common::FS::SuyuPath::CacheDir) / "kartrecomp" / "vk_pipelines.bin";
 +    }
@@ -22469,6 +22717,7 @@ index 0000000000..072dd9e1af
 +        for (auto& t : pre_threads) t.join();
 +        pre_threads.clear();
 +        upscaler.Unload(); // a plugin frees its Vulkan objects: before the device goes away, not in the destructor after it
++        SavePipelineRecipes();
 +        SavePipelineCache();
 +        if (pipeline_cache) {
 +            vk.vkDestroyPipelineCache(device, pipeline_cache, nullptr);
@@ -22870,6 +23119,16 @@ index 0000000000..072dd9e1af
 +    std::unordered_map<u64, SampledTexture> sampled;
 +    std::vector<SampledTexture> retired, retired_prev;
 +    std::unordered_map<std::string, VkPipeline> pipelines;
++    // Pipeline warm-up (see LoadPipelineRecipes).
++    bool warm_enabled = true;
++    bool recipes_rewrite = false;
++    std::unordered_map<u64, std::vector<PipelineRecipe>> warm_recipes; ///< by program code hash
++    std::set<std::string> recipes_known;                            ///< every recipe in the file or added this run
++    std::vector<std::string> recipes_new;                           ///< added this run, not written yet
++    std::vector<const ProgramEntry*> warm_pending;                  ///< programs built since the last frame
++    Image warm_color_image;                                         ///< stand-in render targets of the recipes
++    std::map<VkFormat, Image> warm_depth_images;
++    u64 warm_built = 0;
 +    bool rendering = false;
 +    u32 render_width = 0, render_height = 0;
 +    // Statistics
