@@ -86,13 +86,6 @@ const QStringList kConsoleLanguages{
 
 constexpr int kFsrFilterIndex = 6; // ScalingFilter::Fsr
 
-const GameLanguage kGameLanguages[] = {
-    {"Español (España)", 5, 2},  {"Español (Latinoamérica)", 14, 1}, {"English (UK)", 12, 2}, {"English (US)", 1, 1},
-    {"Français", 2, 2},          {"Français (Canada)", 13, 1},       {"Deutsch", 3, 2},        {"Italiano", 4, 2},
-    {"Nederlands", 8, 2},        {"Português", 9, 2},                {"Русский", 10, 2},       {"日本語", 0, 0},
-    {"한국어", 7, 1},            {"简体中文", 6, 1},                 {"繁體中文", 11, 1},
-};
-
 const QString kRenderer = QStringLiteral("Renderer");
 const QString kCore = QStringLiteral("Core");
 const QString kSystem = QStringLiteral("System");
