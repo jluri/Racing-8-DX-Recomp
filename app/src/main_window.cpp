@@ -164,7 +164,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // Updates from the project's GitHub releases: checked at start-up at most once a day, or with the button on the Play tab.
     updater = new Updater(this);
     connect(updater, &Updater::log, this, [this](const QString& line) { log_view->appendPlainText(line); });
-    QTimer::singleShot(1500, this, [this] { updater->check(true); });
+    // No automatic update check: an official release would replace this Spanish, portable build (relative paths) with the English one.
+    // The "Buscar actualizaciones" button on the Play tab still checks when asked.
 
     connect(&game, &QProcess::readyReadStandardOutput, this, [this] {
         appendLog(QString::fromUtf8(game.readAllStandardOutput()));
