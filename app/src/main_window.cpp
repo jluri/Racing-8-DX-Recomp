@@ -309,6 +309,9 @@ QWidget* MainWindow::buildPlayTab() {
     status_label = new QLabel;
     status_label->setWordWrap(true);
     fullscreen_check = new QCheckBox(tr("Pantalla completa"));
+    // Remembered between runs (the launcher's own settings, userdata/config).
+    fullscreen_check->setChecked(QSettings().value(QStringLiteral("fullscreen"), false).toBool());
+    connect(fullscreen_check, &QCheckBox::toggled, this, [](bool on) { QSettings().setValue(QStringLiteral("fullscreen"), on); });
     nvn_capture_check = new QCheckBox(tr("Grabar traza gráfica (desarrollador)"));
     nvn_capture_check->setToolTip(
         tr("Registra las llamadas gráficas NVN del juego en user/log (nvn_trace.txt, nvn_frames.csv y "
